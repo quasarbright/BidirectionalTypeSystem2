@@ -66,3 +66,6 @@ name \/. t = TyScheme name t ()
 infixr 3 \->
 (\->) :: Type () -> Type () -> Type ()
 arg \-> ret = TyArr arg ret ()
+
+-- example: the type of the identity function
+_ = "a" \/. tvar "a" \-> tvar "a"

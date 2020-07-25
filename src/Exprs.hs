@@ -80,3 +80,6 @@ f \$ x = App f x ()
 infixl 1 \::
 (\::) :: Expr () -> Type () -> Expr ()
 e \:: t = Annot e t ()
+
+-- example: identity function
+_ = "x" \. var "x" \:: "a" \/. tvar "a" \-> tvar "a"
