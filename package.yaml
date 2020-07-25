@@ -1,26 +1,29 @@
 name:                BidirectionalTypeSystem2
 version:             0.1.0.0
-github:              "Github username here/BidirectionalTypeSystem2"
+github:              "quasarbright/BidirectionalTypeSystem2"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "Author email here"
-copyright:           "2019 Author name here"
+author:              "Mike Delmonaco"
+maintainer:          "mdelmonacochs@gmail.com"
+copyright:           "2019 Mike Delmonaco"
 
 extra-source-files:
 - README.md
 - ChangeLog.md
 
 # Metadata used when publishing your package
-# synopsis:            Short description of your package
+# synopsis:            An implementation of a bidirectional type system supporting higher rank polymorphism
 # category:            App category here
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/Github username here/BidirectionalTypeSystem2#readme>
+description:         Please see the README on GitHub at <https://github.com/quasarbright/BidirectionalTypeSystem2#readme>
 
 dependencies:
 - base >= 4.7 && < 5
+- parsec
+- transformers
+- containers
 
 library:
   source-dirs: src

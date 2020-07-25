@@ -4,16 +4,16 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 46d5b17ac8f06fbca5c531388ff4aed0c327cc5e289cef4ffaaa6501b361e466
+-- hash: 828e3e57b6f84777aa0f9d97d143a0c258fc23ed992a5de1c7266275ccaeb37e
 
 name:           BidirectionalTypeSystem2
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/Github username here/BidirectionalTypeSystem2#readme>
-homepage:       https://github.com/Github username here/BidirectionalTypeSystem2#readme
-bug-reports:    https://github.com/Github username here/BidirectionalTypeSystem2/issues
-author:         Author name here
-maintainer:     Author email here
-copyright:      2019 Author name here
+description:    Please see the README on GitHub at <https://github.com/quasarbright/BidirectionalTypeSystem2#readme>
+homepage:       https://github.com/quasarbright/BidirectionalTypeSystem2#readme
+bug-reports:    https://github.com/quasarbright/BidirectionalTypeSystem2/issues
+author:         Mike Delmonaco
+maintainer:     mdelmonacochs@gmail.com
+copyright:      2019 Mike Delmonaco
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -23,11 +23,15 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/Github username here/BidirectionalTypeSystem2
+  location: https://github.com/quasarbright/BidirectionalTypeSystem2
 
 library
   exposed-modules:
+      Common
+      Exprs
       Lib
+      Parsing
+      Types
   other-modules:
       Paths_BidirectionalTypeSystem2
   hs-source-dirs:
@@ -35,6 +39,9 @@ library
   ghc-options: -w -Wall
   build-depends:
       base >=4.7 && <5
+    , containers
+    , parsec
+    , transformers
   default-language: Haskell2010
 
 executable BidirectionalTypeSystem2-exe
@@ -47,6 +54,9 @@ executable BidirectionalTypeSystem2-exe
   build-depends:
       BidirectionalTypeSystem2
     , base >=4.7 && <5
+    , containers
+    , parsec
+    , transformers
   default-language: Haskell2010
 
 test-suite BidirectionalTypeSystem2-test
@@ -60,4 +70,7 @@ test-suite BidirectionalTypeSystem2-test
   build-depends:
       BidirectionalTypeSystem2
     , base >=4.7 && <5
+    , containers
+    , parsec
+    , transformers
   default-language: Haskell2010
