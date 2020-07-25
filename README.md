@@ -2,7 +2,7 @@
 
 My second attempt at implementing a bidirectional type system for the lambda calculus
 
-Based on [this paper](https://dl.acm.org/doi/abs/10.1145/2544174.2500582?casa_token=S8NK3n32ikQAAAAA:DhVf6mor9v9hCiw1QTKyxALYiWYDwt3whcNg6faC351KLdeCkZv8zOc0G-ZOUvOMU_AZKQhqPEcE)
+Based on [this paper](https://www.cl.cam.ac.uk/~nk480/bidir.pdf)
 ```bibtex
 @article{dunfield2013complete,
   title={Complete and easy bidirectional typechecking for higher-rank polymorphism},
@@ -21,10 +21,15 @@ Based on [this paper](https://dl.acm.org/doi/abs/10.1145/2544174.2500582?casa_to
 grammar
 ```
 expr : identifier 
-     | "1"
+     | "()"
      | "\" identifier "." expr
      | expr expr 
      | "(" expr "::" type ")"
 
-type
+type : "1"
+     | lower_identifier
+     | "forall" lower_identifier "." type
+     | type "->" type
 ```
+The language only has unit and lambdas, but you can still have higher
+rank polymorphism be meaningful in such a simple system.
