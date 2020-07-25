@@ -16,7 +16,7 @@ instance Show (Type a) where
       case t of
         One _ -> showString "1"
         TyVar name _ -> showString name
-        TyScheme name body _ -> showParen (p > p') $ showString "\\-/" . showString name . showString "." . showsPrec p' body
+        TyScheme name body _ -> showParen (p > p') $ showString "\\/" . showString name . showString "." . showsPrec p' body
         TyArr arg ret _ -> showParen (p > p') $ showsPrec (p'+1) arg . showString " -> " . showsPrec p' ret
 
 instance Functor Type where

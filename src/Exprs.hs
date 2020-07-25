@@ -54,7 +54,7 @@ instance ExprLike Expr where
   getPrecedence Unit{} = 100
   getPrecedence Lambda{} = 3
   getPrecedence App{} = 4
-  getPrecedence Annot{} = 2
+  getPrecedence Annot{} = 1
 
 -- combinators for easily building expressions
 
@@ -77,6 +77,6 @@ infixl 4 \$
 f \$ x = App f x ()
 
 -- | annot value combinator
-infixl 2 \::
+infixl 1 \::
 (\::) :: Expr () -> Type () -> Expr ()
 e \:: t = Annot e t ()
