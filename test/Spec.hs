@@ -65,11 +65,4 @@ tests = TestList [
     ]
 
 main :: IO Counts
-main = do
-  print (emptyContext
-                     |> addVarAnnot "absoluteUnit" one
-                     |> addUDecl "b"
-                     |> addEMarker "a"
-                     |> addEDecl "a"
-                     |> addUDecl "d")
-  runTestTT tests
+main = runTestTT tests
