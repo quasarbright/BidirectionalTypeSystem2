@@ -40,6 +40,15 @@ idApp = ("id" \. "f" \. "x" \. (var "id" \$ var "f") \$ (var "id" \$ var "x"))
 idAppHask :: forall a b . (forall c . c -> c) -> (a -> b) -> a -> b
 idAppHask idFun f x = idFun f (idFun x)
 
+simpleCtx :: Context ()
+simpleCtx =
+  emptyContext
+  |> addVarAnnot "absoluteUnit" one
+  |> addUDecl "a"
+  |> addEMarker "b"
+  |> addEDecl "b"
+  |> addUDecl "c"
+
 ctxTests = TestLabel "context tests" $ TestList [
         let
           ctx =
@@ -53,7 +62,31 @@ ctxTests = TestLabel "context tests" $ TestList [
             emptyContext
             |> addVarAnnot "absoluteUnit" one
             |> addUDecl "b"
-        in  teq "after marker 1" expected (removeItemsAfterEMarker "a" ctx)
+        in  teq "after marker" expected (removeItemsAfterEMarker "a" ctx)
+        ,
+        let
+          ctx = simpleCtx
+          expected =
+            emptyContext
+            |> addVarAnnot "absoluteUnit" one
+            |> addUDecl "a"
+            |> addEMarker "b"
+            |> addESol "b" (one \-> one)
+            |> addUDecl "c"
+        in teq "record e sol" expected (recordESol "b" (one \-> one) ctx)
+        ,
+        let
+          ctx = simpleCtx
+          expected =
+            emptyContext
+            |> addVarAnnot "absoluteUnit" one
+            |> addUDecl "a"
+            |> addEMarker "b"
+            |> addEDecl "b$5" -- ret
+            |> addEDecl "b$6" -- arg
+            |> addESol "b" (evar "b$6" \-> evar "b$5")
+            |> addUDecl "c"
+        in teq "replace one with many" expected (instLArrReplacement "b" () ctx)
         ,
         tpass
   ]

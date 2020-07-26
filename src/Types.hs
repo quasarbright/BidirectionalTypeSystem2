@@ -64,8 +64,11 @@ instance ExprLike Type where
   getPrecedence TyScheme{} = 2
   getPrecedence TyArr{} = 3
 
+
 -- utility functions for types
 
+
+-- | is the given type a mono-type? (monomorphic)
 isMonoType :: Type a -> Bool
 isMonoType t = case t of
   One{} -> True
@@ -74,7 +77,26 @@ isMonoType t = case t of
   TyScheme{} -> False
   TyArr arg ret _ -> all isMonoType [arg, ret]
 
+-- | @substituteTypeVariable name value t@ substitutes all references to the given name with the type @value@ in the type @t@
+substituteTypeVariable :: Name -> Type a -> Type a -> Type a
+substituteTypeVariable name value t =
+  let recurse = substituteTypeVariable name value in
+  case t of
+    One{} -> t
+    UVar name' _
+      | UName name' == name -> value
+      | otherwise -> t
+    EVar name' _
+      | EName name' == name -> value
+      | otherwise -> t
+    TyScheme name' body a
+      | UName name' == name -> t -- shouldn't even be possible, TODO maybe throw an error?
+      | otherwise -> TyScheme name' (recurse body) a
+    TyArr arg ret a -> TyArr (recurse arg) (recurse ret) a
+
+
 -- combinators for constructing types
+
 
 -- | construct a unit type
 one :: Type ()
@@ -83,6 +105,10 @@ one = One ()
 -- | construct a variable (universal) type
 uvar :: String -> Type ()
 uvar name = UVar name ()
+
+-- | construct a variable (existential) type
+evar :: String -> Type ()
+evar name = EVar name ()
 
 -- | combinator for constructing type schemes
 infixr 2 \/.

@@ -24,8 +24,12 @@ instance Show (ContextItem a) where
 
 
 -- | an ordered context for type checking.
--- items are chronologically backwards. The first item is the most recent
-newtype Context a = Context{ getItems :: [ContextItem a] } deriving(Eq)
+-- items are chronologically backwards. The first item is the most recent.
+-- Has a version number incremented every modification / existential generation. Used to generate unique names.
+data Context a = Context{ getItems :: [ContextItem a], version :: Int }
+
+instance Eq (Context a) where
+  ctx == ctx' = getItems ctx == getItems ctx'
 
 instance Show (Context a) where
     show ctx =
@@ -33,42 +37,50 @@ instance Show (Context a) where
       |> reverse
       |> fmap show
       |> intercalate "\n"
-      |> \s -> concat ["{",s,"}"]
+      |> \s -> concat ["{",s,"}v=",show (version ctx)]
+
+-- | type alias to save me time writing signatures
+type ContextModifier a = Context a -> Context a
+
 
 -- utility
 
-modifyContext :: ([ContextItem a] -> [ContextItem a]) -> Context a -> Context a
-modifyContext f ctx = Context{getItems=f (getItems ctx)}
+-- | Utility for lifting list functions to context functions.
+-- Increments version.
+modifyContext :: ([ContextItem a] -> [ContextItem a]) -> ContextModifier a
+modifyContext f ctx = Context{getItems=f (getItems ctx), version=version ctx + 1}
 
 
 -- construction
 
 
 emptyContext :: Context a
-emptyContext = Context []
+emptyContext = Context [] 0
 
 -- | Add the given context item to the context (the item will be chronologically last)
-addItem :: ContextItem a -> Context a -> Context a
+addItem :: ContextItem a -> ContextModifier a
 addItem item = modifyContext (item:)
 
 -- | declare a universal variable
-addUDecl :: String -> Context a -> Context a
+addUDecl :: String -> ContextModifier a
 addUDecl = addItem . UDecl
 
 -- | declare an existential variable
-addEDecl :: String -> Context a -> Context a
+addEDecl :: String -> ContextModifier a
 addEDecl = addItem . EDecl
 
 -- | add an existential variable marker
-addEMarker :: String -> Context a -> Context a
+addEMarker :: String -> ContextModifier a
 addEMarker = addItem . EMarker
 
--- | add an existential solution to the environment. NOTE: does not replace a decl with a solution, just blindly adds it.
-addESol :: String -> Type a -> Context a -> Context a
+-- | add an existential solution to the environment.
+-- NOTE: does not replace a decl with a solution, just blindly adds it.
+-- For the replacement, use @recordESol@
+addESol :: String -> Type a -> ContextModifier a
 addESol name t = addItem (ESol name t)
 
 -- | add a variable (expr) annotation to the environment
-addVarAnnot :: String -> Type a -> Context a -> Context a
+addVarAnnot :: String -> Type a -> ContextModifier a
 addVarAnnot name t = addItem (VarAnnot name t)
 
 
@@ -108,29 +120,74 @@ getAllItemNames ctx =
 domain :: Context a -> Set.Set Name
 domain = getAllItemNames
 
+-- | Generate a single unique existential name derived from the given base name.
+-- Also returns the same context with a new unique-name-generator state.
+getFreshExistentialFrom :: String -> Context a -> (String, Context a)
+getFreshExistentialFrom baseName ctx = (concat [baseName,"$",show $ version ctx],ctx{version=version ctx+1})
 
 -- Item removal
 
 
 -- | remove any context items chronologically after the specified existential marker,
 -- excluding the marker from the result.
-removeItemsAfterEMarker :: String -> Context a -> Context a
+removeItemsAfterEMarker :: String -> ContextModifier a
 removeItemsAfterEMarker = removeItemsAfterItem . EMarker
 
 -- | remove any context items chronologically after the specified universal declaration,
 -- excluding the declaration from the result.
-removeAfterUDecl :: String -> Context a -> Context a
+removeAfterUDecl :: String -> ContextModifier a
 removeAfterUDecl = removeItemsAfterItem . UDecl
 
 -- | remove any context items chronologically after the given one, excluding the given item from the result.
-removeItemsAfterItem :: ContextItem a -> Context a -> Context a
+removeItemsAfterItem :: ContextItem a -> ContextModifier a
 removeItemsAfterItem item = removeItemsAfterCondition (item ==)
 
 -- | remove any context items chronologically after the first passing of the given predicate.
 -- The passing context item will be excluded from the result
-removeItemsAfterCondition :: (ContextItem a -> Bool) -> Context a -> Context a
+removeItemsAfterCondition :: (ContextItem a -> Bool) -> ContextModifier a
 removeItemsAfterCondition p = modifyContext $ \items ->
   items
   |> reverse
   |> takeWhile (not . p)
   |> reverse
+
+
+-- item replacement
+
+
+-- | @replaceItem target replacement@ replaces all occurrences of @target@ with @replacement@ in the environment.
+-- There should only ever be one of any context item in a context, so this should just do one replacement.
+replaceItem :: ContextItem a -> ContextItem a -> ContextModifier a
+replaceItem target replacement = modifyContext (fmap (\item -> if item == target then replacement else item))
+
+-- | Changes all declarations of an existential variable to the provided solution.
+-- There should only ever be one declaration of the same existential, however.
+recordESol :: String -> Type a -> ContextModifier a
+recordESol name t = replaceItem (EDecl name) (ESol name t)
+
+-- | @replaceItemWithItems target replacements@ replaces all occurrences of @target@ with @replacements@ in the environment.
+-- @replacements@ should be in chronological order.
+-- There should only ever be one of any context item in a context, so this should just do one replacement.
+replaceItemWithItems :: ContextItem a -> [ContextItem a] -> ContextModifier a
+replaceItemWithItems target replacements = modifyContext $ \items ->
+  items
+  |> fmap (\item -> if item == target then reverse replacements else [item])
+  |> concat
+
+-- | Used in the InstLArr Instantiation rule from the paper:
+-- CTX[a?] -> CTX[a2?, a1?, a? = a1? -> a2?].
+-- Performs that replacement by generating unique names.
+-- Pass in the existential name ("a") and a tag for the created types.
+instLArrReplacement :: String -> a -> Context a -> Context a
+instLArrReplacement name tag ctx =
+  let
+      (retName, ctx') = getFreshExistentialFrom name ctx
+      (argName, ctx'') = getFreshExistentialFrom name ctx'
+  in
+  replaceItemWithItems
+    (EDecl name)
+    [ EDecl retName
+    , EDecl argName
+    , ESol name (TyArr (EVar argName tag) (EVar retName tag) tag)
+    ]
+    ctx''
