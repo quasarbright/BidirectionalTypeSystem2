@@ -120,10 +120,19 @@ getAllItemNames ctx =
 domain :: Context a -> Set.Set Name
 domain = getAllItemNames
 
--- | Generate a single unique existential name derived from the given base name.
+-- | Generates a single unique name derived from the given base name.
 -- Also returns the same context with a new unique-name-generator state.
-getFreshExistentialFrom :: String -> Context a -> (String, Context a)
-getFreshExistentialFrom baseName ctx = (concat [baseName,"$",show $ version ctx],ctx{version=version ctx+1})
+getFreshNameFrom :: String -> Context a -> (String, Context a)
+getFreshNameFrom baseName ctx = (concat [baseName,"$",show $ version ctx],ctx{version=version ctx+1})
+
+-- | Generates a specified number of unique names derived from the given base name.
+-- Also returns the same context with a new unique-name-generator state.
+getFreshNamesFrom :: String -> Int -> Context a -> ([String], Context a)
+getFreshNamesFrom baseName n ctx = foldl go ([], ctx) [1..n]
+  where
+    go (names, ctx') _ = (names++[name], ctx'')
+      where
+        (name, ctx'') = getFreshNameFrom baseName ctx'
 
 -- Item removal
 
@@ -181,8 +190,7 @@ replaceItemWithItems target replacements = modifyContext $ \items ->
 instLArrReplacement :: String -> a -> Context a -> Context a
 instLArrReplacement name tag ctx =
   let
-      (retName, ctx') = getFreshExistentialFrom name ctx
-      (argName, ctx'') = getFreshExistentialFrom name ctx'
+      ~([retName, argName], ctx') = getFreshNamesFrom name 2 ctx
   in
   replaceItemWithItems
     (EDecl name)
@@ -190,4 +198,4 @@ instLArrReplacement name tag ctx =
     , EDecl argName
     , ESol name (TyArr (EVar argName tag) (EVar retName tag) tag)
     ]
-    ctx''
+    ctx'
