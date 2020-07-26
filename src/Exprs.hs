@@ -11,7 +11,6 @@ data Expr a = Var VarName a
             | Lambda VarName (Expr a) a
             | App (Expr a) (Expr a) a
             | Annot (Expr a) (Type a) a
-            deriving(Eq, Ord)
 
 instance Show (Expr a) where
   showsPrec p e =
@@ -22,6 +21,18 @@ instance Show (Expr a) where
       Lambda x body _ -> showParen (p > p') $ showString "\\" . showString x . showString "." . showsPrec p' body
       App f x _ -> showParen (p > p') $ showsPrec p' f . showString " " . showsPrec (p'+1) x
       Annot e' t _ -> showParen (p > p') $ showsPrec p' e' . showString " :: " . showsPrec (p'+1) t
+
+instance Eq (Expr a) where
+  Var name _ == Var name' _ = name == name'
+  Var{} == _ = False
+  Unit{} == Unit{} = True
+  Unit{} == _ = False
+  Lambda name body _ == Lambda name' body' _ = name == name' && body == body'
+  Lambda{} == _ = False
+  App f x _ == App f' x' _ = f == f' && x == x'
+  App{} == _ = False
+  Annot e t _ == Annot e' t' _ = e == e' && t == t'
+  Annot{} == _ = False
 
 instance Functor Expr where
   fmap f (Var name a) = Var name (f a)

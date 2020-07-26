@@ -2,13 +2,13 @@ module Types where
 
 import Common
 import qualified Data.Set as Set
+
 type TyVarName = String
 
 data Type a = One a
           | TyVar TyVarName a
           | TyScheme TyVarName (Type a) a
           | TyArr (Type a) (Type a) a
-          deriving(Eq, Ord)
 
 instance Show (Type a) where
   showsPrec p t =
@@ -18,6 +18,16 @@ instance Show (Type a) where
         TyVar name _ -> showString name
         TyScheme name body _ -> showParen (p > p') $ showString "\\/" . showString name . showString "." . showsPrec p' body
         TyArr arg ret _ -> showParen (p > p') $ showsPrec (p'+1) arg . showString " -> " . showsPrec p' ret
+
+instance Eq (Type a) where
+  One{} == One{} = True
+  One{} == _ = False
+  TyVar name _ == TyVar name' _ = name == name'
+  TyVar{} == _ = False
+  TyScheme a t _ == TyScheme a' t' _ = a == a' && t == t'
+  TyScheme{} == _ = False
+  TyArr arg ret _ == TyArr arg' ret' _ = arg == arg' && ret == ret'
+  TyArr{} == _ = False
 
 instance Functor Type where
   fmap f (One a) = One (f a)
