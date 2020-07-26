@@ -2,10 +2,9 @@ module Environment where
 
 import Data.List
 import qualified Data.Set as Set
+import Control.Monad
 import Common
 import Types
-
---- TODO left off about to do environment and type well-formedness
 
 -- | An item occurring in a type checking context
 data ContextItem a = UDecl String
@@ -54,9 +53,14 @@ modifyContext f ctx = Context{getItems=f (getItems ctx), version=version ctx + 1
 
 -- construction
 
+-- | Construct a context from the given list of context items.
+-- items should be in reverse chronological order!!!
+fromList :: [ContextItem a] -> Context a
+fromList items = Context{ getItems = items, version = length items }
 
+-- | context with no items (version=0)
 emptyContext :: Context a
-emptyContext = Context [] 0
+emptyContext = Context{ getItems = [], version = 0 }
 
 -- | Add the given context item to the context (the item will be chronologically last)
 addItem :: ContextItem a -> ContextModifier a
@@ -92,9 +96,18 @@ addVarAnnot name t = addItem (VarAnnot name t)
 containsItem :: ContextItem a -> Context a -> Bool
 containsItem item ctx = item `elem` getItems ctx
 
--- | does the context have any items with given name? Only checks left-hand-sides.
+-- | does the context have an item which passes the given predicate?
+containsItemBy :: (ContextItem a -> Bool) -> Context a -> Bool
+containsItemBy p = any p . getItems
+
+-- | does the context have any items with given name? Only checks left-hand-sides. Doesn't ignore markers
 containsName :: Name -> Context a -> Bool
-containsName name ctx = any (itemHasName name) (getItems ctx)
+containsName name ctx = name `elem` getAllItemNames ctx
+
+-- | does the domain of this context have any items with the given name?
+-- Ignores markers.
+containsNameInDomain :: Name -> Context a -> Bool
+containsNameInDomain name ctx = name `elem` domain ctx
 
 -- | does the context item have the given name? Only checks left-hand-sides
 itemHasName :: Name -> ContextItem a -> Bool
@@ -109,17 +122,23 @@ getItemName item = case item of
   EMarker name -> EName name
   ESol name _ -> EName name
 
--- | Retrieve the set of all names in the domain of this context.
+-- | Retrieve the set of all names in this context, including those specified by markers.
 getAllItemNames :: Context a -> Set.Set Name
 getAllItemNames ctx =
   getItems ctx
   |> fmap getItemName
   |> Set.fromList
 
--- | Retrieve the set of all names in the domain of this context.
--- Alias for @getAllItemNames@
+-- | Retrieve the set of all names in the domain of this context, ignoring markers.
 domain :: Context a -> Set.Set Name
-domain = getAllItemNames
+domain ctx =
+  getItems ctx
+  |> filter (not . isMarker)
+  |> fmap getItemName
+  |> Set.fromList
+  where
+    isMarker EMarker{} = True
+    isMarker _ = False
 
 -- | Generates a single unique name derived from the given base name.
 -- Also returns the same context with a new unique-name-generator state.
@@ -142,6 +161,7 @@ findItem p = find p . getItems
 -- | find an item with the given name
 findItemWithName :: Name -> Context a -> Maybe (ContextItem a)
 findItemWithName name = findItem (\item -> getItemName item == name)
+
 
 -- Item removal
 
@@ -209,7 +229,6 @@ instLArrReplacement name tag ctx =
     ]
     ctx'
 
-
 -- context as a type substitution
 
 contextAsSubstitution :: Context a -> Type a -> Type a
@@ -225,3 +244,58 @@ contextAsSubstitution ctx t =
         mi -> error ("unexpected item: "++show mi)
     TyScheme name' body tag -> TyScheme name' (recurse body) tag
     TyArr arg ret tag -> TyArr (recurse arg) (recurse ret) tag
+
+
+-- well-formedness
+
+
+data ContextWFError a = UnboundUVar String a
+                      | UnboundEVar String a
+                      | DupVar (ContextItem a)
+                      | DupUVar (ContextItem a)
+                      | DupEVar (ContextItem a)
+                      | DupEMarker (ContextItem a)
+                      deriving(Eq, Show) -- TODO manual Show instance
+
+-- TODO return list of errors instead
+-- TODO is it ok if ctx contains uvar "a" and you check a scheme forall a . T and add another "a"?
+-- TODO what about b? = one -> b? recursive types
+-- | check the well-formedness of a type in the given context
+checkTypeWellFormedness :: Context a -> Type a -> Either (ContextWFError a) ()
+checkTypeWellFormedness ctx t =
+  let
+    -- | passes if the item is either an EDecl or ESol for the given name, but not a marker
+    ePredicate _ EMarker{} = False
+    ePredicate name item = itemHasName (EName name) item
+  in
+  case t of
+    One{} -> Right ()
+    UVar name tag
+      | containsItem (UDecl name) ctx -> Right ()
+      | otherwise -> Left (UnboundUVar name tag)
+    EVar name tag
+      | containsItemBy (ePredicate name) ctx -> Right ()
+      | otherwise -> Left (UnboundEVar name tag)
+    TyScheme name body _ -> checkTypeWellFormedness (addUDecl name ctx) body
+    TyArr arg ret _ -> sequence_ (checkTypeWellFormedness ctx <$> [arg, ret])
+
+-- | check the well-formedness of a context
+checkContextWellFormedness :: Context a -> Either (ContextWFError a) ()
+checkContextWellFormedness (Context [] _) = Right ()
+checkContextWellFormedness (Context (item:items) v) =
+  do
+    let ctx = Context items v
+    let checkDup onDup item' = when (containsNameInDomain (getItemName item') ctx) (Left $ onDup item')
+    case item of
+      VarAnnot _ t -> do
+        checkDup DupVar item
+        checkTypeWellFormedness ctx t
+      UDecl{} -> checkDup DupUVar item
+      EDecl{} -> checkDup DupEVar item
+      ESol _ t -> do
+        checkDup DupEVar item
+        checkTypeWellFormedness ctx t
+      EMarker{} -> do
+        when (item `elem` items) (Left $ DupEMarker item)
+        checkDup DupEVar item
+    checkContextWellFormedness ctx

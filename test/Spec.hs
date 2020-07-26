@@ -5,6 +5,7 @@ import Common
 import Exprs
 import Types
 import Environment
+import Debug.Trace
 
 teq :: (Eq a, Show a) => String -> a -> a -> Test
 teq name a b = TestCase (assertEqual name a b)
@@ -12,6 +13,11 @@ teq name a b = TestCase (assertEqual name a b)
 tpass :: Test
 tpass = TestCase $ assertEqual "pass" True True
 
+tContextWF :: (Eq a, Show a) => String -> Context a -> Either (ContextWFError a) () -> Test
+tContextWF name ctx expected = teq name expected (checkContextWellFormedness ctx)
+
+tTypeWF :: (Eq a, Show a) => String -> Type a -> Context a -> Either (ContextWFError a) () -> Test
+tTypeWF name t ctx expected = teq name expected (checkTypeWellFormedness ctx t)
 
 id_ :: Expr ()
 id_ = "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"
@@ -117,6 +123,26 @@ ctxTests = TestLabel "context tests" $ TestList [
           expected = "d" \/. (uvar "c" \-> uvar "d" \-> one \-> one)
         in teq "substitution4" expected (contextAsSubstitution ctx ("d" \/. (uvar "c" \-> uvar "d" \-> evar "a")))
         ,
+        tContextWF "simple wf" simpleCtx (Right()),
+        tTypeWF "one wf" one simpleCtx (Right()),
+        tTypeWF "one->one wf" (one \-> one) simpleCtx (Right()),
+        tTypeWF "a->one wf" (uvar "a" \-> one) simpleCtx (Right()),
+        tTypeWF "b?->one wf" (evar "b" \-> one) simpleCtx (Right()),
+        tTypeWF "forall d . d -> c wf" ("d" \/. uvar "d" \-> uvar "c") simpleCtx (Right()),
+        tTypeWF "unbound uvar" (uvar "dd") simpleCtx (Left $ UnboundUVar "dd" ()),
+        tTypeWF "unbound evar" (evar "dd") simpleCtx (Left $ UnboundEVar "dd" ()),
+        tTypeWF "unbound evar in arg" (evar "dd" \-> one) simpleCtx (Left $ UnboundEVar "dd" ()),
+        tTypeWF "unbound evar in ret" (one \-> evar "dd" \-> one) simpleCtx (Left $ UnboundEVar "dd" ()),
+        tTypeWF "unbound evar in scheme" ("u" \/. one \-> evar "dd" \-> one) simpleCtx (Left $ UnboundEVar "dd" ()),
+        tContextWF "simple+dup marker" (addEMarker "b" simpleCtx) (Left $ DupEMarker (EMarker "b")),
+        tContextWF "simple+dup evar" (addEDecl "b" simpleCtx) (Left $ DupEVar (EDecl "b")),
+        tContextWF "simple+badAnnot" (addVarAnnot "y" (one \-> uvar "sdf") simpleCtx) (Left $ UnboundUVar "sdf" ()),
+        tContextWF "simple+dupAnnot" (addVarAnnot "absoluteUnit" (one \-> one) simpleCtx) (Left $ DupVar (VarAnnot "absoluteUnit" (one \-> one))),
+        tContextWF "edecl then its marker" (simpleCtx |> addEDecl "d" |> addEMarker "d") (Left $ DupEVar (EMarker "d")),
+        tContextWF "simple + bad esol" (recordESol "b" (uvar "r") simpleCtx) (Left $ UnboundUVar "r" ()),
+        tContextWF "simple + good annot" (addVarAnnot "y" (one \-> uvar "a" \-> evar "b") simpleCtx) (Right ()),
+        tContextWF "simple + good sol" (recordESol "b" (one \-> uvar "a") simpleCtx) (Right ()),
+        tContextWF "dup uvar at beginning of env" (emptyContext |> addUDecl "a" |> addUDecl "a" |> addUDecl "b" |> addESol "c" one) (Left $ DupUVar (UDecl "a")),
         tpass
   ]
 
