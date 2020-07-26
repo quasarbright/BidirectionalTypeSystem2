@@ -4,11 +4,9 @@ import qualified Data.Set as Set
 import Common
 import Types
 
-type VarName = String
-
-data Expr a = Var VarName a
+data Expr a = Var String a
             | Unit a
-            | Lambda VarName (Expr a) a
+            | Lambda String (Expr a) a
             | App (Expr a) (Expr a) a
             | Annot (Expr a) (Type a) a
 
@@ -16,9 +14,9 @@ instance Show (Expr a) where
   showsPrec p e =
     let p' = getPrecedence e in
     case e of
-      Var name _ -> showString name
+      Var name _ -> shows (VName name)
       Unit{} -> showString "()"
-      Lambda x body _ -> showParen (p > p') $ showString "\\" . showString x . showString "." . showsPrec p' body
+      Lambda x body _ -> showParen (p > p') $ showString "\\" . shows (VName x) . showString "." . showsPrec p' body
       App f x _ -> showParen (p > p') $ showsPrec p' f . showString " " . showsPrec (p'+1) x
       Annot e' t _ -> showParen (p > p') $ showsPrec p' e' . showString " :: " . showsPrec (p'+1) t
 
@@ -55,9 +53,9 @@ instance Tagged Expr where
   setTag a (Annot e t _) = Annot e t a
 
 instance ExprLike Expr where
-  getFreeVars (Var name _) = Set.singleton name
+  getFreeVars (Var name _) = Set.singleton (VName name)
   getFreeVars Unit{} = Set.empty
-  getFreeVars (Lambda name body _) = Set.delete name (getFreeVars body)
+  getFreeVars (Lambda name body _) = Set.delete (VName name) (getFreeVars body)
   getFreeVars (App f x _) = Set.union (getFreeVars f) (getFreeVars x)
   getFreeVars (Annot e _ _) = getFreeVars e
 
@@ -70,7 +68,7 @@ instance ExprLike Expr where
 -- combinators for easily building expressions
 
 -- | make a variable value
-var :: VarName -> Expr ()
+var :: String -> Expr ()
 var s = Var s ()
 
 -- | make a unit value
@@ -79,7 +77,7 @@ unit = Unit ()
 
 -- | lambda expression combinator
 infixr 3 \.
-(\.) :: VarName -> Expr () -> Expr ()
+(\.) :: String -> Expr () -> Expr ()
 name \.  body = Lambda name body ()
 
 -- | Function application combinator (high precedence)
@@ -93,4 +91,4 @@ infixl 1 \::
 e \:: t = Annot e t ()
 
 -- example: identity function
-_ = "x" \. var "x" \:: "a" \/. tvar "a" \-> tvar "a"
+_ = "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"

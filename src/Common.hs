@@ -16,6 +16,18 @@ class Functor f => Tagged f where
 -- | exprs and types
 class Tagged f => ExprLike f where
   -- | get the set of variable names occurring free in the expression
-  getFreeVars :: f a -> Set.Set String
+  getFreeVars :: f a -> Set.Set Name
   -- | for operator precedence
   getPrecedence :: f a -> Int
+
+
+data Name = VName String -- expr var name
+          | UName String -- type universal name
+          | EName String -- type existential name
+          deriving(Eq, Ord)
+
+instance Show Name where
+  show n = case n of
+    VName name -> name
+    UName name -> name
+    EName name -> name ++ "?"
