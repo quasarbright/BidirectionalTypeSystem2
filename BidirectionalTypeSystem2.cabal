@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f3cb7a87f614bcf86cd18d7ec4894f1d18e0540002c9a82e1b275ba71ac6d39a
+-- hash: 89382b0c2379ce4bf3a1e760b971f9b61324ba1f8626d0a11bb9586d32505a5d
 
 name:           BidirectionalTypeSystem2
 version:        0.1.0.0
@@ -70,6 +70,7 @@ test-suite BidirectionalTypeSystem2-test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       BidirectionalTypeSystem2
+    , HUnit
     , base >=4.7 && <5
     , containers
     , parsec

@@ -1,8 +1,17 @@
 {-# LANGUAGE RankNTypes #-}
 
+import Test.HUnit
+import Common
 import Exprs
 import Types
-import Common
+import Environment
+
+teq :: (Eq a, Show a) => String -> a -> a -> Test
+teq name a b = TestCase (assertEqual name a b)
+
+tpass :: Test
+tpass = TestCase $ assertEqual "pass" True True
+
 
 id_ :: Expr ()
 id_ = "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"
@@ -31,5 +40,36 @@ idApp = ("id" \. "f" \. "x" \. (var "id" \$ var "f") \$ (var "id" \$ var "x"))
 idAppHask :: forall a b . (forall c . c -> c) -> (a -> b) -> a -> b
 idAppHask idFun f x = idFun f (idFun x)
 
-main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+ctxTests = TestLabel "context tests" $ TestList [
+        let
+          ctx =
+            emptyContext
+            |> addVarAnnot "absoluteUnit" one
+            |> addUDecl "b"
+            |> addEMarker "a"
+            |> addEDecl "a"
+            |> addUDecl "d"
+          expected =
+            emptyContext
+            |> addVarAnnot "absoluteUnit" one
+            |> addUDecl "b"
+        in  teq "after marker 1" expected (removeItemsAfterEMarker "a" ctx)
+        ,
+        tpass
+  ]
+
+tests :: Test
+tests = TestList [
+        ctxTests,
+        tpass
+    ]
+
+main :: IO Counts
+main = do
+  print (emptyContext
+                     |> addVarAnnot "absoluteUnit" one
+                     |> addUDecl "b"
+                     |> addEMarker "a"
+                     |> addEDecl "a"
+                     |> addUDecl "d")
+  runTestTT tests

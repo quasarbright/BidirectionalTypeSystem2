@@ -1,9 +1,10 @@
 module Environment where
 
+import Data.List
+import qualified Data.Set as Set
 import Common
 import Exprs
 import Types
-import qualified Data.Set as Set
 
 -- | An item occurring in a type checking context
 data ContextItem a = UDecl String
@@ -12,11 +13,67 @@ data ContextItem a = UDecl String
                | EMarker String
                | ESol String (Type a) -- better be mono type
                 deriving(Eq)
+
+instance Show (ContextItem a) where
+  show item = case item of
+      UDecl name -> show (UName name)
+      VarAnnot name t -> concat [show (VName name)," :: ",show t]
+      EDecl name -> show (EName name)
+      EMarker name -> "MARK: "++show (EName name)
+      ESol name t -> concat [show (EName name)," = ",show t]
+
+
 -- | an ordered context for type checking.
 -- items are chronologically backwards. The first item is the most recent
-newtype Context a = Context{ getItems :: [ContextItem a] }
+newtype Context a = Context{ getItems :: [ContextItem a] } deriving(Eq)
+
+instance Show (Context a) where
+    show ctx =
+      getItems ctx
+      |> reverse
+      |> fmap show
+      |> intercalate "\n"
+      |> \s -> concat ["{",s,"}"]
+
+-- utility
+
+modifyContext :: ([ContextItem a] -> [ContextItem a]) -> Context a -> Context a
+modifyContext f ctx = Context{getItems=f (getItems ctx)}
+
+
+-- construction
+
+
+emptyContext :: Context a
+emptyContext = Context []
+
+-- | Add the given context item to the context (the item will be chronologically last)
+addItem :: ContextItem a -> Context a -> Context a
+addItem item = modifyContext (item:)
+
+-- | declare a universal variable
+addUDecl :: String -> Context a -> Context a
+addUDecl = addItem . UDecl
+
+-- | declare an existential variable
+addEDecl :: String -> Context a -> Context a
+addEDecl = addItem . EDecl
+
+-- | add an existential variable marker
+addEMarker :: String -> Context a -> Context a
+addEMarker = addItem . EMarker
+
+-- | add an existential solution to the environment. NOTE: does not replace a decl with a solution, just blindly adds it.
+addESol :: String -> Type a -> Context a -> Context a
+addESol name t = addItem (ESol name t)
+
+-- | add a variable (expr) annotation to the environment
+addVarAnnot :: String -> Type a -> Context a -> Context a
+addVarAnnot name t = addItem (VarAnnot name t)
+
 
 -- observations
+
 
 -- | does the context have the given item?
 containsItem :: ContextItem a -> Context a -> Bool
@@ -51,7 +108,9 @@ getAllItemNames ctx =
 domain :: Context a -> Set.Set Name
 domain = getAllItemNames
 
+
 -- Item removal
+
 
 -- | remove any context items chronologically after the specified existential marker,
 -- excluding the marker from the result.
@@ -70,9 +129,8 @@ removeItemsAfterItem item = removeItemsAfterCondition (item ==)
 -- | remove any context items chronologically after the first passing of the given predicate.
 -- The passing context item will be excluded from the result
 removeItemsAfterCondition :: (ContextItem a -> Bool) -> Context a -> Context a
-removeItemsAfterCondition p ctx =
-  getItems ctx
+removeItemsAfterCondition p = modifyContext $ \items ->
+  items
   |> reverse
   |> takeWhile (not . p)
   |> reverse
-  |> Context
