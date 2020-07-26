@@ -5,6 +5,8 @@ import qualified Data.Set as Set
 import Common
 import Types
 
+--- TODO left off about to do environment and type well-formedness
+
 -- | An item occurring in a type checking context
 data ContextItem a = UDecl String
                | VarAnnot String (Type a)
