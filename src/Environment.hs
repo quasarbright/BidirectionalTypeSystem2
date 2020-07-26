@@ -3,7 +3,6 @@ module Environment where
 import Data.List
 import qualified Data.Set as Set
 import Common
-import Exprs
 import Types
 
 -- | An item occurring in a type checking context
@@ -134,6 +133,14 @@ getFreshNamesFrom baseName n ctx = foldl go ([], ctx) [1..n]
       where
         (name, ctx'') = getFreshNameFrom baseName ctx'
 
+-- | find an item which satisfies the given predicate
+findItem :: (ContextItem a -> Bool) -> Context a -> Maybe (ContextItem a)
+findItem p = find p . getItems
+
+-- | find an item with the given name
+findItemWithName :: Name -> Context a -> Maybe (ContextItem a)
+findItemWithName name = findItem (\item -> getItemName item == name)
+
 -- Item removal
 
 
@@ -199,3 +206,20 @@ instLArrReplacement name tag ctx =
     , ESol name (TyArr (EVar argName tag) (EVar retName tag) tag)
     ]
     ctx'
+
+
+-- context as a type substitution
+
+contextAsSubstitution :: Context a -> Type a -> Type a
+contextAsSubstitution ctx t =
+  let recurse = contextAsSubstitution ctx in
+  case t of
+    One{} -> t
+    UVar{} -> t -- assumes well-formedness
+    EVar name _ ->
+      case findItemWithName (EName name) ctx of
+        Just (ESol _ t') -> recurse t'
+        Just EDecl{} -> t -- assumes well-formedness
+        mi -> error ("unexpected item: "++show mi)
+    TyScheme name' body tag -> TyScheme name' (recurse body) tag
+    TyArr arg ret tag -> TyArr (recurse arg) (recurse ret) tag

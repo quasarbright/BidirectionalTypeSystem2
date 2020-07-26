@@ -26,7 +26,6 @@ if_ :: Expr ()
 if_ = ("cond" \. "thn" \. "els" \. var "cond" \$ var "thn" \$ var "els")
       \:: ("a" \/. (uvar "a" \-> uvar "a" \-> uvar "a") \-> uvar "a" \-> uvar "a" \-> uvar "a")
 
-
 -- | an example of higher rank polymorphism. see @idAppHask@ for the Haskell equivalent
 idApp :: Expr ()
 idApp = ("id" \. "f" \. "x" \. (var "id" \$ var "f") \$ (var "id" \$ var "x"))
@@ -48,6 +47,16 @@ simpleCtx =
   |> addEMarker "b"
   |> addEDecl "b"
   |> addUDecl "c"
+
+substitutionCtx :: Context ()
+substitutionCtx =
+  emptyContext
+  |> addEMarker "a"
+  |> addESol "a" (one \-> one)
+  |> addEMarker "b"
+  |> addEDecl "b"
+  |> addUDecl "c"
+  |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")
 
 ctxTests = TestLabel "context tests" $ TestList [
         let
@@ -88,13 +97,33 @@ ctxTests = TestLabel "context tests" $ TestList [
             |> addUDecl "c"
         in teq "replace one with many" expected (instLArrReplacement "b" () ctx)
         ,
+        let
+          ctx = substitutionCtx
+          expected = one \-> one
+        in teq "substitution1" expected (contextAsSubstitution ctx (evar "a"))
+        ,
+        let
+          ctx = substitutionCtx
+          expected = (one \-> one) \-> (one \-> one)
+        in teq "substitution2" expected (contextAsSubstitution ctx (evar "a" \-> evar "a"))
+        ,
+        let
+          ctx = substitutionCtx
+          expected = (one \-> one) \-> evar "b"
+        in teq "substitution3" expected (contextAsSubstitution ctx (evar "a" \-> evar "b"))
+        ,
+        let
+          ctx = substitutionCtx
+          expected = "d" \/. (uvar "c" \-> uvar "d" \-> one \-> one)
+        in teq "substitution4" expected (contextAsSubstitution ctx ("d" \/. (uvar "c" \-> uvar "d" \-> evar "a")))
+        ,
         tpass
   ]
 
 tests :: Test
-tests = TestList [
-        ctxTests,
-        tpass
+tests = TestList
+    [ ctxTests
+    , tpass
     ]
 
 main :: IO Counts

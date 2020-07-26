@@ -20,7 +20,9 @@ class Tagged f => ExprLike f where
   -- | for operator precedence
   getPrecedence :: f a -> Int
 
-
+-- | union type for names
+-- Usually, strings will be passed around. Names are just for when you need to tag a string with its name type
+-- or display a string as a particular name
 data Name = VName String -- expr var name
           | UName String -- type universal name
           | EName String -- type existential name
