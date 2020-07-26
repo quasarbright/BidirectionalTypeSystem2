@@ -64,6 +64,16 @@ instance ExprLike Type where
   getPrecedence TyScheme{} = 2
   getPrecedence TyArr{} = 3
 
+-- utility functions for types
+
+isMonoType :: Type a -> Bool
+isMonoType t = case t of
+  One{} -> True
+  UVar{} -> True
+  EVar{} -> True
+  TyScheme{} -> False
+  TyArr arg ret _ -> all isMonoType [arg, ret]
+
 -- combinators for constructing types
 
 -- | construct a unit type
