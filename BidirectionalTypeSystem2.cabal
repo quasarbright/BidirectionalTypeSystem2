@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 89382b0c2379ce4bf3a1e760b971f9b61324ba1f8626d0a11bb9586d32505a5d
+-- hash: ac3917c3a9bfc920ef706055364387645f5208cf0b728b9fbc8df8e859020be0
 
 name:           BidirectionalTypeSystem2
 version:        0.1.0.0
@@ -27,6 +27,7 @@ source-repository head
 
 library
   exposed-modules:
+      Check
       Common
       Environment
       Exprs

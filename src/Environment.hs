@@ -6,6 +6,10 @@ import Control.Monad
 import Common
 import Types
 
+-- former to do: think about a context [x :: \/a.a->a,  y :: \/a.a->a->a,  decl a] or something similar
+-- Thought about it, couldn't cause an error like "expected a, got a" in haskell, so I should be fine.
+-- TODO test it though. Try to break it in this language
+
 -- | An item occurring in a type checking context
 data ContextItem a = UDecl String
                | VarAnnot String (Type a)
@@ -173,8 +177,8 @@ removeItemsAfterEMarker = removeItemsAfterItem . EMarker
 
 -- | remove any context items chronologically after the specified universal declaration,
 -- excluding the declaration from the result.
-removeAfterUDecl :: String -> ContextModifier a
-removeAfterUDecl = removeItemsAfterItem . UDecl
+removeItemsAfterUDecl :: String -> ContextModifier a
+removeItemsAfterUDecl = removeItemsAfterItem . UDecl
 
 -- | remove any context items chronologically after the given one, excluding the given item from the result.
 removeItemsAfterItem :: ContextItem a -> ContextModifier a

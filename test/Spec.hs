@@ -5,6 +5,7 @@ import Common
 import Exprs
 import Types
 import Environment
+import Check
 import Debug.Trace
 
 teq :: (Eq a, Show a) => String -> a -> a -> Test
@@ -146,10 +147,44 @@ ctxTests = TestLabel "context tests" $ TestList [
         tpass
   ]
 
+subtypeCtx =
+  initialContext
+  |> addUDecl "a"
+  |> addEMarker "b"
+  |> addEDecl "b"
+
+tSubtypePass :: (Eq a, Show a) => Type a -> Type a -> Test
+tSubtypePass a b = teq (show a++" <: "++show b) (Right ()) (runSubtype a b subtypeCtx)
+
+tSubtypeError :: (Eq a, Show a) => Type a -> Type a -> TypeError a -> Test
+tSubtypeError a b err = teq (show a++" <: "++show b) (Left err) (runSubtype a b subtypeCtx)
+
+tSubtypeMismatch :: (Eq a, Show a) => Type a -> Type a -> Test
+tSubtypeMismatch a b = tSubtypeError a b (Mismatch a b)
+
+subtypeTests :: Test
+subtypeTests = TestLabel "subtype tests" $ TestList
+  [ tpass
+  , tSubtypePass one one
+  , tSubtypePass (uvar "a") (uvar "a")
+  , tSubtypePass (evar "a") (evar "a")
+  , tSubtypePass (evar "a" \-> one) (evar "a" \-> one)
+  , tSubtypeMismatch one (uvar "a")
+  , tSubtypeMismatch (uvar "a") one
+  , tSubtypeMismatch (uvar "a") (uvar "b")
+  , tSubtypeMismatch (uvar "a") (one \-> one)
+  , tSubtypeMismatch (one \-> one) (uvar "a")
+  , tSubtypeError (one \-> one) (uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
+  , tSubtypeError (uvar "a" \-> uvar "a") (one \-> one) (Mismatch one (uvar "a"))
+  , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch (uvar "c") one)
+  , tSubtypeError (evar "c") (evar "c" \-> one) (OccursError (EName "c") (evar "c" \-> one))
+  , tSubtypeError (evar "c" \-> one) (evar "c") (OccursError (EName "c") (evar "c" \-> one))
+  ]
+
 tests :: Test
 tests = TestList
     [ ctxTests
-    , tpass
+    , subtypeTests
     ]
 
 main :: IO Counts
