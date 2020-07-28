@@ -2,7 +2,7 @@ module Check where
 
 import Control.Monad.Trans.State.Strict
 import Common
---import Exprs
+import Exprs
 import Types
 import Environment
 import Control.Monad.Trans.Class (lift)
@@ -32,6 +32,12 @@ initialContext = emptyContext
 throw :: TypeError a -> TypeChecker a b
 throw = lift . Left
 
+mismatch :: Type a -> Type a -> TypeChecker a b
+mismatch a b = do
+  a' <- _simplify a
+  b' <- _simplify b
+  throw $ Mismatch a' b'
+
 -- I'm making these functions now in case I eventually add more than just a context to the state.
 -- That way, I won't have to change how existing code is written, just these functions
 
@@ -47,6 +53,11 @@ putContext = put
 modifyContextTC :: (Context a -> Context a) -> TypeChecker a ()
 modifyContextTC = modify
 
+-- TODO use this everywhere instead after testing
+_simplify :: Type a -> TypeChecker a (Type a)
+_simplify t = do
+  simplifier <- contextAsSubstitution <$> getContext
+  return (simplifier t)
 
 -- subtyping and instantiation
 
@@ -61,7 +72,7 @@ EVar name _ <: EVar name' _
   -- don't mismatch if names are different. InstantiateL will handle that
   | name == name' = return ()
 -- Var
-UVar name tag <: UVar name' tag' = unless (name == name') (throw (Mismatch (UVar name tag) (UVar name' tag')))
+UVar name tag <: UVar name' tag' = unless (name == name') (mismatch (UVar name tag) (UVar name' tag'))
 -- Unit
 One{} <: One{} = return ()
 -- ->
@@ -99,9 +110,9 @@ t <: EVar name _ = do
   occursCheck (EName name) t
   instantiateR t name
 -- These need to be last so they don't cover the scheme cases
-a@UVar{} <: b = throw (Mismatch a b)
-a@One{} <: b = throw (Mismatch a b)
-a@TyArr{} <: b = throw (Mismatch a b)
+a@UVar{} <: b = mismatch a b
+a@One{} <: b = mismatch a b
+a@TyArr{} <: b = mismatch a b
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
 evalSubtype :: Type a -> Type a -> Context a -> Either (TypeError a) ()
@@ -194,3 +205,101 @@ reachHelp name name' tag = do
 
 
 -- checking and inference
+
+
+-- | Check that the expression is a subtype of the given type
+typeCheck :: Expr a -> Type a -> TypeChecker a ()
+-- 1I<=
+typeCheck (Unit _) (One _) = return ()
+-- \/I <=
+typeCheck e (TyScheme uName body _) = do
+  modifyContextTC $ addUDecl uName
+  typeCheck e body
+  modifyContextTC $ removeItemsAfterUDecl uName
+-- ->I <=
+typeCheck (Lambda name body _) (TyArr argType retType _) = do
+  modifyContextTC $ addVarAnnot name argType
+  typeCheck body retType
+  modifyContextTC $ removeItemsAfterVarAnnot name
+-- TODO tuple checking here similar to ->I <=
+-- Sub
+typeCheck e expectedType = do
+  synthesizedType <- typeSynth e
+  -- TODO change context reads into this format. way nicer, no names
+  simplify <- contextAsSubstitution <$> getContext
+  let synthesizedType' = simplify synthesizedType
+  let expectedType' = simplify expectedType
+  synthesizedType' <: expectedType'
+
+-- | Type check with the given context
+runTypeCheck :: Expr a -> Type a -> Context a -> Either (TypeError a) (Context a)
+runTypeCheck e t ctx = snd <$> runStateT (typeCheck e t) ctx
+
+-- | Synthesize a type for the given expression
+typeSynth :: Expr a -> TypeChecker a (Type a)
+-- Var
+typeSynth (Var name _) = do
+  ctx <- getContext
+  case lookupVar name ctx of
+    Just t -> return t
+    _ -> error "unbound variable in type synthesis"
+-- Anno
+typeSynth (Annot e t _) = do
+  typeCheck e t
+  return t
+-- 1I =>
+typeSynth (Unit tag) = return $ One tag
+-- ->I =>
+typeSynth (Lambda name body tag) = do
+  startCtx <- getContext
+  let (argName, ctx') = getFreshNameFrom "a" startCtx
+  let (retName, ctx'') = getFreshNameFrom "b" ctx'
+  putContext ctx''
+  let argType = EVar argName tag
+  let retType = EVar retName tag
+  modifyContextTC $ addEDecl argName
+  modifyContextTC $ addEDecl retName
+  modifyContextTC $ addVarAnnot name argType
+  typeCheck body retType
+  modifyContextTC $ removeItemsAfterVarAnnot name
+  return $ TyArr argType retType tag
+-- ->E =>
+typeSynth (App f x _) = do
+  fType <- typeSynth f
+  ctx <- getContext
+  let fType' = contextAsSubstitution ctx fType
+  typeSynthApp fType' x
+
+-- | Run type synthesis under the given context
+runTypeSynth :: Expr a -> Context a -> Either (TypeError a) (Type a, Context a)
+runTypeSynth e = runStateT (typeSynth e)
+
+-- | Given a function type and argument expression being applied to a function of that type,
+-- synthesize the type of the application.
+typeSynthApp :: Type a -> Expr a -> TypeChecker a (Type a)
+-- \/ app
+typeSynthApp (TyScheme uName body tag) x = do
+  startCtx <- getContext
+  let (eName, ctxAfterName) = getFreshNameFrom uName startCtx
+  putContext ctxAfterName
+  let eType = EVar eName tag
+  modifyContextTC $ addEDecl eName
+  let eBody = substituteTypeVariable (UName uName) eType body
+  typeSynthApp eBody x
+-- ->App
+typeSynthApp (TyArr argType retType _) x = do
+  typeCheck x argType
+  return retType
+-- a?App
+typeSynthApp (EVar eName tag) x = do
+  startCtx <- getContext
+  let (argName, retName, ctx') = instArrReplacement eName tag startCtx
+  putContext ctx'
+  let argType = EVar argName tag
+  let retType = EVar retName tag
+  typeCheck x argType
+  return retType
+-- tried to apply non-function type. Mismatch
+-- TODO maybe manually throw Mismatch here?
+typeSynthApp t _ = mismatch (TyArr (EVar "arg" tag) (EVar "ret" tag) tag) t
+  where tag = getTag t

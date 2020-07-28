@@ -257,7 +257,7 @@ subtypeTests = TestLabel "subtype tests" $ TestList
        -- this makes sense bc y? has to be less polymorphic then the id function.
        -- when this type is "collapsed", it'll be collapsed to a particular, monomorphic identity function,
        -- possibly on the right-hand-side of a universal quantifier. The collapse will just solve y$8. Cool!
-       |> addEMarker "y$8"
+       |> addEDecl "y$8"
        |> addESol "y$9" (evar "y$8")
        |> addESol "y" (evar "y$9" \-> evar "y$8")
        |> addEDecl "g"
@@ -271,6 +271,8 @@ subtypeTests = TestLabel "subtype tests" $ TestList
 
 {-
 
+check if the identity function is a subtype of the unit-only identity function
+
                                              [] |- \/a.a -> a  <:  1 -> 1 -| []
                                   ------------------------------------------------------- <: forall L
                                   [MARK a?, a?] |- a? -> a?  <: 1 -> 1 -| [MARK a?, a?=1]
@@ -283,10 +285,58 @@ subtypeTests = TestLabel "subtype tests" $ TestList
 
 -}
 
+tSynth :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
+tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (runTypeSynth e ctx)
+
+tSynthErr :: (Eq a, Show a) => Context a -> Expr a -> TypeError a -> Test
+tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) (runTypeSynth e ctx)
+
+--tSynthSimplify :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
+--tSynthSimplify ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (simplify <$> runTypeSynth e ctx)
+--  where
+--    simplify (typ, finalCtx) = (contextAsSubstitution finalCtx typ, finalCtx)
+
+synthCheckTests = TestLabel "type synthesis and checking" $ TestList
+  [ tpass
+  , tSynth emptyContext unit one emptyContext
+  , let ctx = emptyContext |> addVarAnnot "x" one
+    in tSynth ctx (var "x") one ctx
+  -- thought this was weird at first and it should just synthesize (). But I tried to cause a mismatch with this behavior
+  -- and everything just worked, so I guess it's ok. That a$0? is equal to 1, but it just didn't get substituted
+  , tSynth emptyContext (("x" \. var "x") \$ unit) (evar "a$0") (emptyContext |> addESol "a$0" one |> addESol "b$1" (evar "a$0"))
+  , tSynth emptyContext ("u" \. var "u" \:: one \-> one) (one \-> one) emptyContext
+  -- try to cause a mismatch with the weird unsubstituted existential mentioned earlier, but it worked fine
+  , tSynth emptyContext (("u" \. var "u" \:: one \-> one) \$ (("x" \. var "x") \$ unit)) one (emptyContext |> addESol "a$2" one |> addESol "b$3" (evar "a$2"))
+  -- polymorphic identity function
+  , tSynth emptyContext id_ ("a" \/. uvar "a" \-> uvar "a") emptyContext
+  -- using polymorphic identity function simply. get unsubstituted existential again
+  , tSynth emptyContext (id_ \$ unit) (evar "a$4") (emptyContext |> addESol "a$4" one)
+  -- try to cause mismatch with unsubstituted existential, but it works fine
+  , tSynth emptyContext (("u" \. var "u" \:: one \-> one) \$ (id_ \$ unit)) one (emptyContext |> addESol "a$6" one)
+  , let
+      ctx' =
+        emptyContext
+        |> addESol "a$4$8" one
+        |> addESol "a$4$9" one
+        |> addESol "a$4" (evar "a$4$9" \-> evar "a$4$8")
+        |> addESol "a$17" one
+    in tSynth emptyContext (id_ \$ ("u" \. var "u" \:: one \-> one) \$ (id_ \$ unit)) one ctx'
+  , let t = ("a" \/. "b" \/.
+                      ("c" \/. uvar "c" \-> uvar "c") -- id function. note inner forall
+                      \-> (uvar "a" \-> uvar "b") -- f
+                      \-> uvar "a" -- x
+                      \-> uvar "b") -- f x
+    in tSynth emptyContext idApp t emptyContext
+  -- use polymorphic identity function
+  , tSynth emptyContext (idApp \$ id_ \$ id_ \$ unit) (evar "a$20") (emptyContext |> addESol "a$20" one |> addESol "b$22" (evar "a$20"))
+  , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
+  ]
+
 tests :: Test
 tests = TestList
     [ ctxTests
     , subtypeTests
+    , synthCheckTests
     ]
 
 main :: IO Counts

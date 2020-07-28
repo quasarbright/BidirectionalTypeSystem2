@@ -174,6 +174,14 @@ whichEDeclLast a b ctx =
     Nothing -> Nothing
     Just unexpected -> error ("found unexpected item searching for last edecl: "++show unexpected)
 
+-- | find the type of the variable in the given context
+lookupVar :: String -> Context a -> Maybe (Type a)
+lookupVar name ctx = do
+  item <- findItemWithName (VName name) ctx
+  case item of
+    VarAnnot _ t -> return t
+    _ -> error "found non-var annot when looking up variable's type"
+
 
 -- Item removal
 
@@ -187,6 +195,12 @@ removeItemsAfterEMarker = removeItemsAfterItem . EMarker
 -- excluding the declaration from the result.
 removeItemsAfterUDecl :: String -> ContextModifier a
 removeItemsAfterUDecl = removeItemsAfterItem . UDecl
+
+-- TODO uniquely name all variables or make this function take in the annotated type too
+-- | remove any context items chronologically after the specified variable's annotation,
+-- excluding the variable annotation from the result
+removeItemsAfterVarAnnot :: String -> ContextModifier a
+removeItemsAfterVarAnnot x = removeItemsAfterCondition (itemHasName (VName x))
 
 -- | remove any context items chronologically after the given one, excluding the given item from the result.
 removeItemsAfterItem :: ContextItem a -> ContextModifier a
