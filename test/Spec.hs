@@ -93,7 +93,7 @@ ctxTests = TestLabel "context tests" $ TestList [
         ,
         let
           ctx = simpleCtx
-          expected =
+          expectedCtx =
             emptyContext
             |> addVarAnnot "absoluteUnit" one
             |> addUDecl "a"
@@ -102,7 +102,8 @@ ctxTests = TestLabel "context tests" $ TestList [
             |> addEDecl "b$6" -- arg
             |> addESol "b" (evar "b$6" \-> evar "b$5")
             |> addUDecl "c"
-        in teq "replace one with many" expected (instLArrReplacement "b" () ctx)
+          expected = ("b$6", "b$5", expectedCtx)
+        in teq "replace one with many" expected (instArrReplacement "b" () ctx)
         ,
         let
           ctx = substitutionCtx
@@ -153,11 +154,28 @@ subtypeCtx =
   |> addEMarker "b"
   |> addEDecl "b"
 
+instSubtypeCtx =
+  emptyContext
+  |> addVarAnnot "x" one
+  |> addUDecl "z"
+  |> addEMarker "y"
+  |> addEDecl "y"
+  |> addEDecl "g"
+
+-- | for simple subtype tests that don't affect the context and use subtypeCtx
 tSubtypePass :: (Eq a, Show a) => Type a -> Type a -> Test
-tSubtypePass a b = teq (show a++" <: "++show b) (Right ()) (runSubtype a b subtypeCtx)
+tSubtypePass a b = tSubtypePassInst subtypeCtx a b subtypeCtx
+
+-- | same as other version, but take in an input context and care about the output context
+tSubtypePassInst :: (Eq a, Show a) => Context a -> Type a -> Type a -> Context a -> Test
+tSubtypePassInst ctx a b ctx' = teq (show a++" <: "++show b) (Right ctx') (runSubtype a b ctx)
 
 tSubtypeError :: (Eq a, Show a) => Type a -> Type a -> TypeError a -> Test
-tSubtypeError a b err = teq (show a++" <: "++show b) (Left err) (runSubtype a b subtypeCtx)
+tSubtypeError = tSubtypeErrorInst subtypeCtx
+
+-- | same as other version, but take in an input context
+tSubtypeErrorInst :: (Eq a, Show a) => Context a -> Type a -> Type a -> TypeError a -> Test
+tSubtypeErrorInst ctx a b err = teq (show a++" <: "++show b) (Left err) (runSubtype a b ctx)
 
 tSubtypeMismatch :: (Eq a, Show a) => Type a -> Type a -> Test
 tSubtypeMismatch a b = tSubtypeError a b (Mismatch a b)
@@ -165,6 +183,7 @@ tSubtypeMismatch a b = tSubtypeError a b (Mismatch a b)
 subtypeTests :: Test
 subtypeTests = TestLabel "subtype tests" $ TestList
   [ tpass
+  -- no instantiation
   , tSubtypePass one one
   , tSubtypePass (uvar "a") (uvar "a")
   , tSubtypePass (evar "a") (evar "a")
@@ -179,7 +198,90 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch (uvar "c") one)
   , tSubtypeError (evar "c") (evar "c" \-> one) (OccursError (EName "c") (evar "c" \-> one))
   , tSubtypeError (evar "c" \-> one) (evar "c") (OccursError (EName "c") (evar "c" \-> one))
+  -- instantiation
+  , tSubtypePassInst emptyContext ("a" \/. uvar "a" \-> uvar "a") (one \-> one) emptyContext
+  , tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") (one \-> one) instSubtypeCtx
+  -- shape -> hexagon <: hexagon -> shape
+  , tSubtypePassInst instSubtypeCtx ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) instSubtypeCtx
+  , tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") ("b" \/. uvar "b" \-> uvar "b") instSubtypeCtx
+  , tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") instSubtypeCtx
+  , tSubtypePassInst instSubtypeCtx (evar "y") one (recordESol "y" one instSubtypeCtx)
+  , tSubtypePassInst instSubtypeCtx one (evar "y") (recordESol "y" one instSubtypeCtx)
+  , let
+      expectedCtx =
+        emptyContext
+        |> addVarAnnot "x" one
+        |> addUDecl "z"
+        |> addEMarker "y"
+        |> addESol "y$5" one
+        |> addESol "y$6" one
+        |> addESol "y" (evar "y$6" \-> evar "y$5")
+        |> addEDecl "g"
+    in
+    tSubtypePassInst instSubtypeCtx (evar "y") (one \-> one) (recordESol "y" (one \-> one) expectedCtx)
+  , let
+    expectedCtx =
+      emptyContext
+      |> addVarAnnot "x" one
+      |> addUDecl "z"
+      |> addEMarker "y"
+      |> addESol "y$5" one
+      |> addESol "y$6" one
+      |> addESol "y" (evar "y$6" \-> evar "y$5")
+      |> addEDecl "g"
+    in
+    tSubtypePassInst instSubtypeCtx (one \-> one) (evar "y") (recordESol "y" (one \-> one) expectedCtx)
+  , tSubtypePassInst instSubtypeCtx (evar "y") (evar "g") (recordESol "g" (evar "y") instSubtypeCtx)
+  , tSubtypePassInst instSubtypeCtx (evar "g") (evar "y") (recordESol "g" (evar "y") instSubtypeCtx)
+  , tSubtypePassInst instSubtypeCtx (evar "g") (evar "y") (recordESol "g" (evar "y") instSubtypeCtx)
+  , tSubtypePassInst instSubtypeCtx (evar "y") (uvar "z") (recordESol "y" (uvar "z") instSubtypeCtx)
+  , tSubtypePassInst instSubtypeCtx (uvar "z") (evar "y") (recordESol "y" (uvar "z") instSubtypeCtx)
+  , let
+     expectedCtx =
+       emptyContext
+       |> addVarAnnot "x" one
+       |> addUDecl "z"
+       |> addEMarker "y"
+       |> addESol "y$6" (uvar "a")
+       |> addESol "y$7" (uvar "a")
+       |> addESol "y" (evar "y$7" \-> evar "y$6")
+       |> addEDecl "g"
+    in
+    tSubtypePassInst instSubtypeCtx (evar "y") ("a" \/. uvar "a" \-> uvar "a") expectedCtx
+  , let
+     expectedCtx =
+       emptyContext
+       |> addVarAnnot "x" one
+       |> addUDecl "z"
+       |> addEMarker "y"
+       -- this makes sense bc y? has to be less polymorphic then the id function.
+       -- when this type is "collapsed", it'll be collapsed to a particular, monomorphic identity function,
+       -- possibly on the right-hand-side of a universal quantifier. The collapse will just solve y$8. Cool!
+       |> addEMarker "y$8"
+       |> addESol "y$9" (evar "y$8")
+       |> addESol "y" (evar "y$9" \-> evar "y$8")
+       |> addEDecl "g"
+    in
+    tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") (evar "y") expectedCtx
+
+  , tSubtypeErrorInst instSubtypeCtx (one \-> one) ("a" \/. uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
+  , tSubtypeErrorInst instSubtypeCtx (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (Mismatch (uvar "a") one)
+  , tpass
   ]
+
+{-
+
+                                             [] |- \/a.a -> a  <:  1 -> 1 -| []
+                                  ------------------------------------------------------- <: forall L
+                                  [MARK a?, a?] |- a? -> a?  <: 1 -> 1 -| [MARK a?, a?=1]
+---------------------------------------------------------------------------------------------------------------------------------------------- <: ->
+                                                               [MARK a?, a?=1] |- [MARK a?, a?=1][a?] <: [MARK a?, a?=1][1] |- [MARK a?, a?=1]
+[MARK a?, a?] |- 1 <: a? -| [MARK a?, a?=1]                                      [MARK a?, a?=1] |- 1 <: 1 |- [MARK a?, a?=1]
+-------------------------------------------- <: InstantiateR   ------------------------------------------------------------------------------- <: Unit
+[MARK a?, a?] |- 1 <=: a? -| [MARK a?, a?=1]
+-------------------------------------------- InstRSolve
+
+-}
 
 tests :: Test
 tests = TestList

@@ -103,22 +103,94 @@ a@UVar{} <: b = throw (Mismatch a b)
 a@One{} <: b = throw (Mismatch a b)
 a@TyArr{} <: b = throw (Mismatch a b)
 
--- | run the subtype assertion with the given initial context
-runSubtype :: Type a -> Type a -> Context a -> Either (TypeError a) ()
-runSubtype a b = evalStateT (a <: b)
+-- | run the subtype assertion with the given initial context, ignoring the final context
+evalSubtype :: Type a -> Type a -> Context a -> Either (TypeError a) ()
+evalSubtype a b = evalStateT (a <: b)
+
+-- | run the subtype assertion with the given initial context, returning the final context
+runSubtype :: Type a -> Type a -> Context a -> Either (TypeError a) (Context a)
+runSubtype a b ctx  = snd <$> runStateT (a <: b) ctx
 
 -- | Instantiate the specified existential such that a? <: A (subtype).
 -- May modify context
 instantiateL :: String -> Type a -> TypeChecker a ()
-instantiateL = undefined
+-- InstLReach (and the case of InstLSolve where tau is an existential b? declared before a? s.t. Gamma[b?][a?])
+instantiateL name (EVar name' tag') = reachHelp name name' tag'
+-- InstLArr
+instantiateL name (TyArr argType retType tag) = do
+  startCtx <- getContext
+  -- argName and retName are the names of the existentials corresponding to argType and retType
+  let (argName, retName, articulatedCtx) = instArrReplacement name tag startCtx
+  putContext articulatedCtx
+  -- we need to take in argType or more, so we need the supertype
+  instantiateR argType argName
+  ctxAfterInst <- getContext
+  let substitute = contextAsSubstitution ctxAfterInst
+  let simplifiedRetType = substitute retType
+  -- we need to return retType or less, so we need the subtype
+  instantiateL retName simplifiedRetType
+-- InstLAllR
+instantiateL name (TyScheme uname body _) = do
+  modifyContextTC $ addUDecl uname
+  instantiateL name body
+  modifyContextTC $ removeItemsAfterUDecl uname
+-- InstLSolve
+instantiateL name t = do
+  -- TODO check t well formedness against ctx
+  modifyContextTC $ recordESol name t
 
 -- | Instantiate the specified existential such that A <: a? (supertype).
 -- May modify context
 instantiateR :: Type a -> String -> TypeChecker a ()
-instantiateR = undefined
+-- InstRReach (and the case of InstRSolve where tau is an existential b? declared before a? s.t. Gamma[b?][a?])
+instantiateR (EVar name tag) name' = reachHelp name name' tag
+-- InstRArr
+instantiateR (TyArr argType retType tag) name = do
+  -- TODO abstract with instantiateLArr
+  startCtx <- getContext
+  -- argName and retName are the names of the existentials corresponding to argType and retType
+  let (argName, retName, articulatedCtx) = instArrReplacement name tag startCtx
+  putContext articulatedCtx
+  -- we need to take in argType or less, so subtype
+  instantiateL argName argType
+  ctxAfterInst <- getContext
+  let substitute = contextAsSubstitution ctxAfterInst
+  let simplifiedRetType = substitute retType
+  -- we need to return retType or more, so supertype
+  instantiateR simplifiedRetType retName
+-- InstRAllL
+instantiateR (TyScheme uName body tag) name = do
+  startCtx <- getContext
+  let (eName, ctxAfterName) = getFreshNameFrom uName startCtx
+  putContext ctxAfterName
+  modifyContextTC $ addEMarker eName
+  modifyContextTC $ addEDecl eName
+  let bodyWithExistential = substituteTypeVariable (UName uName) (EVar eName tag) body
+  instantiateR bodyWithExistential name
+  modifyContextTC $ removeItemsAfterEMarker eName
+-- InstRSolve
+instantiateR t name =
+  -- TODO check t well formedness against ctx
+  modifyContextTC $ recordESol name t
+
 
 -- | Check that the given name does not occur free in the given type. Used to detect infinite types like a = 1 -> a.
 occursCheck :: Name -> Type a -> TypeChecker a ()
 occursCheck name t = when (name `elem` getFreeVars t) (throw (OccursError name t))
+
+-- | given two existential names, set them equal to each other
+-- while preserving context well-formedness
+reachHelp :: String -> String -> a -> TypeChecker a ()
+reachHelp name name' tag = do
+  ctx <- getContext
+  -- TODO check both types' well-formedness with respect to ctx
+  case whichEDeclLast name name' ctx of
+    Nothing -> error ("at least one edecl unbound of: "++show (EName name)++" and "++show (EName name'))
+    Just lastName
+      -- Gamma[name][name'] -> Gamma[name][name' = name] (? omitted for easy reading)
+      | lastName == name' -> modifyContextTC $ recordESol name' (EVar name tag)
+      -- Gamma[name'][name] -> Gamma[name'][name = name'] (? omitted for easy reading)
+      | otherwise -> modifyContextTC $ recordESol name (EVar name' tag)
+
 
 -- checking and inference

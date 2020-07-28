@@ -158,13 +158,21 @@ getFreshNamesFrom baseName n ctx = foldl go ([], ctx) [1..n]
       where
         (name, ctx'') = getFreshNameFrom baseName ctx'
 
--- | find an item which satisfies the given predicate
+-- | find an item which satisfies the given predicate (chronologically last)
 findItem :: (ContextItem a -> Bool) -> Context a -> Maybe (ContextItem a)
 findItem p = find p . getItems
 
--- | find an item with the given name
+-- | find an item with the given name (chronologically last)
 findItemWithName :: Name -> Context a -> Maybe (ContextItem a)
 findItemWithName name = findItem (\item -> getItemName item == name)
+
+-- | Which EDecl occurs (chronologically) last in the context?
+whichEDeclLast :: String -> String -> Context a -> Maybe String
+whichEDeclLast a b ctx =
+  case findItem (\item -> item `elem` [EDecl a, EDecl b]) ctx of
+    Just (EDecl name) -> Just name
+    Nothing -> Nothing
+    Just unexpected -> error ("found unexpected item searching for last edecl: "++show unexpected)
 
 
 -- Item removal
@@ -216,24 +224,22 @@ replaceItemWithItems target replacements = modifyContext $ \items ->
   |> fmap (\item -> if item == target then reverse replacements else [item])
   |> concat
 
--- | Used in the InstLArr Instantiation rule from the paper:
+-- | Used in the InstLArr and InstRArr Instantiation rules from the paper:
 -- CTX[a?] -> CTX[a2?, a1?, a? = a1? -> a2?].
--- Performs that replacement by generating unique names.
+-- Performs that replacement by generating fresh existentials 
+-- and returns the names of the arg and ret type existentials.
 -- Pass in the existential name ("a") and a tag for the created types.
-instLArrReplacement :: String -> a -> Context a -> Context a
-instLArrReplacement name tag ctx =
-  let
-      ~([retName, argName], ctx') = getFreshNamesFrom name 2 ctx
-  in
-  replaceItemWithItems
-    (EDecl name)
-    [ EDecl retName
-    , EDecl argName
-    , ESol name (TyArr (EVar argName tag) (EVar retName tag) tag)
-    ]
-    ctx'
+instArrReplacement :: String -> a -> Context a -> (String, String, Context a)
+instArrReplacement name tag ctx =
+  let ~([retName, argName], ctx') = getFreshNamesFrom name 2 ctx in
+  let target = EDecl name in
+  let replacements = [EDecl retName, EDecl argName, ESol name (TyArr (EVar argName tag) (EVar retName tag) tag)] in
+  let finalCtx = replaceItemWithItems target replacements ctx' in
+  (argName, retName, finalCtx)
+
 
 -- context as a type substitution
+
 
 contextAsSubstitution :: Context a -> Type a -> Type a
 contextAsSubstitution ctx t =
