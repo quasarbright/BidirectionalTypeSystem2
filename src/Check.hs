@@ -75,6 +75,7 @@ EVar name _ <: EVar name' _
 UVar name tag <: UVar name' tag' = unless (name == name') (mismatch (UVar name tag) (UVar name' tag'))
 -- Unit
 One{} <: One{} = return ()
+TInt{} <: TInt{} = return ()
 -- ->
 TyArr arg ret _ <: TyArr arg' ret' _ = do
   arg' <: arg
@@ -112,6 +113,7 @@ t <: EVar name _ = do
 -- These need to be last so they don't cover the scheme cases
 a@UVar{} <: b = mismatch a b
 a@One{} <: b = mismatch a b
+a@TInt{} <: b = mismatch a b
 a@TyArr{} <: b = mismatch a b
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
@@ -210,7 +212,9 @@ reachHelp name name' tag = do
 -- | Check that the expression is a subtype of the given type
 typeCheck :: Expr a -> Type a -> TypeChecker a ()
 -- 1I<=
-typeCheck (Unit _) (One _) = return ()
+typeCheck Unit{} One{} = return ()
+-- IntI<=
+typeCheck EInt{} TInt{} = return ()
 -- \/I <=
 typeCheck e (TyScheme uName body _) = do
   modifyContextTC $ addUDecl uName
@@ -249,6 +253,8 @@ typeSynth (Annot e t _) = do
   return t
 -- 1I =>
 typeSynth (Unit tag) = return $ One tag
+-- IntI =>
+typeSynth (EInt _ tag) = return $ TInt tag
 -- ->I =>
 typeSynth (Lambda name body tag) = do
   startCtx <- getContext
@@ -301,5 +307,5 @@ typeSynthApp (EVar eName tag) x = do
   return retType
 -- tried to apply non-function type. Mismatch
 -- TODO maybe manually throw Mismatch here?
-typeSynthApp t _ = mismatch (TyArr (EVar "arg" tag) (EVar "ret" tag) tag) t
+typeSynthApp t _ = throw $ Mismatch (TyArr (EVar "a" tag) (EVar "b" tag) tag) t
   where tag = getTag t

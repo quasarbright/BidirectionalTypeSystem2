@@ -4,6 +4,7 @@ import Common
 import qualified Data.Set as Set
 
 data Type a = One a
+          | TInt a
           | UVar String a
           | EVar String a
           | TyScheme String (Type a) a
@@ -14,6 +15,7 @@ instance Show (Type a) where
       let p' = getPrecedence t in
       case t of
         One _ -> showString "1"
+        TInt _ -> showString "Int"
         UVar name _ -> shows (UName name)
         EVar name _ -> shows (EName name)
         TyScheme name body _ -> showParen (p > p') $ showString "\\/" . shows (UName name) . showString "." . showsPrec p' body
@@ -22,6 +24,8 @@ instance Show (Type a) where
 instance Eq (Type a) where
   One{} == One{} = True
   One{} == _ = False
+  TInt{} == TInt{} = True
+  TInt{} == _ = False
   UVar name _ == UVar name' _ = name == name'
   UVar{} == _ = False
   EVar name _ == EVar name' _ = name == name'
@@ -33,6 +37,7 @@ instance Eq (Type a) where
 
 instance Functor Type where
   fmap f (One a) = One (f a)
+  fmap f (TInt a) = TInt (f a)
   fmap f (UVar name a) = UVar name (f a)
   fmap f (EVar name a) = EVar name (f a)
   fmap f (TyScheme name t a) = TyScheme name (fmap f t) (f a)
@@ -40,12 +45,14 @@ instance Functor Type where
 
 instance Tagged Type where
   getTag (One a) = a
+  getTag (TInt a) = a
   getTag (UVar _ a) = a
   getTag (EVar _ a) = a
   getTag (TyScheme _ _ a) = a
   getTag (TyArr _ _ a) = a
 
   setTag a (One _) = One a
+  setTag a (TInt _) = TInt a
   setTag a (UVar name _) = UVar name a
   setTag a (EVar name _) = EVar name a
   setTag a (TyScheme name t _) = TyScheme name t a
@@ -53,12 +60,14 @@ instance Tagged Type where
 
 instance ExprLike Type where
   getFreeVars One{} = Set.empty
+  getFreeVars TInt{} = Set.empty
   getFreeVars (UVar name _) = Set.singleton (UName name)
   getFreeVars (EVar name _) = Set.singleton (EName name)
   getFreeVars (TyScheme name t _) = Set.delete (UName name) (getFreeVars t)
   getFreeVars (TyArr i r _) = Set.union (getFreeVars i) (getFreeVars r)
 
   getPrecedence One{} = 100
+  getPrecedence TInt{} = 100
   getPrecedence UVar{} = 100
   getPrecedence EVar{} = 100
   getPrecedence TyScheme{} = 2
@@ -72,6 +81,7 @@ instance ExprLike Type where
 isMonoType :: Type a -> Bool
 isMonoType t = case t of
   One{} -> True
+  TInt{} -> True
   UVar{} -> True
   EVar{} -> True
   TyScheme{} -> False
@@ -83,6 +93,7 @@ substituteTypeVariable name value t =
   let recurse = substituteTypeVariable name value in
   case t of
     One{} -> t
+    TInt{} -> t
     UVar name' _
       | UName name' == name -> value
       | otherwise -> t
@@ -101,6 +112,10 @@ substituteTypeVariable name value t =
 -- | construct a unit type
 one :: Type ()
 one = One ()
+
+-- | construct an integer type
+tint :: Type ()
+tint = TInt ()
 
 -- | construct a variable (universal) type
 uvar :: String -> Type ()

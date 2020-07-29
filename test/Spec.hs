@@ -299,6 +299,7 @@ tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) (runType
 synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   [ tpass
   , tSynth emptyContext unit one emptyContext
+  , tSynth emptyContext (int 1) tint emptyContext
   , let ctx = emptyContext |> addVarAnnot "x" one
     in tSynth ctx (var "x") one ctx
   -- thought this was weird at first and it should just synthesize (). But I tried to cause a mismatch with this behavior
@@ -307,6 +308,7 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynth emptyContext ("u" \. var "u" \:: one \-> one) (one \-> one) emptyContext
   -- try to cause a mismatch with the weird unsubstituted existential mentioned earlier, but it worked fine
   , tSynth emptyContext (("u" \. var "u" \:: one \-> one) \$ (("x" \. var "x") \$ unit)) one (emptyContext |> addESol "a$2" one |> addESol "b$3" (evar "a$2"))
+  , tSynth emptyContext (("u" \. var "u" \:: tint \-> tint) \$ (("x" \. var "x") \$ int 1)) tint (emptyContext |> addESol "a$2" tint |> addESol "b$3" (evar "a$2"))
   -- polymorphic identity function
   , tSynth emptyContext id_ ("a" \/. uvar "a" \-> uvar "a") emptyContext
   -- using polymorphic identity function simply. get unsubstituted existential again
@@ -330,6 +332,16 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   -- use polymorphic identity function
   , tSynth emptyContext (idApp \$ id_ \$ id_ \$ unit) (evar "a$20") (emptyContext |> addESol "a$20" one |> addESol "b$22" (evar "a$20"))
   , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
+  -- different types for branches of if
+  , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch (evar "a$33" \-> one) one)
+  -- successful if
+  , tSynth emptyContext (if_ \$ true \$ unit \$ unit) one (emptyContext |> addESol "a$8" one)
+  -- \x.x x infinite type
+  , tSynthErr emptyContext ("x" \. var "x" \$ var "x") (OccursError (EName "a$0$6") (evar "a$0$6" \-> evar "a$0$5"))
+  -- y combinator can't type check :(
+  , tSynthErr emptyContext ("f" \. ("x" \. var "f" \$ (var "x" \$ var "x")) \$ ("x" \. var "f" \$ (var "x" \$ var "x"))) (OccursError (EName "a$5$14") (evar "a$5$14" \-> evar "a$5$13"))
+  -- apply non-function
+  , tSynthErr emptyContext (unit \$ unit) (Mismatch (evar "a" \-> evar "b") one)
   ]
 
 tests :: Test
