@@ -186,34 +186,36 @@ lookupVar name ctx = do
 -- Item removal
 
 
--- | remove any context items chronologically after the specified existential marker,
+-- | remove any context items chronologically after the (last) specified existential marker,
 -- excluding the marker from the result.
 removeItemsAfterEMarker :: String -> ContextModifier a
 removeItemsAfterEMarker = removeItemsAfterItem . EMarker
 
--- | remove any context items chronologically after the specified universal declaration,
+-- | remove any context items chronologically after the (last) specified universal declaration,
 -- excluding the declaration from the result.
 removeItemsAfterUDecl :: String -> ContextModifier a
 removeItemsAfterUDecl = removeItemsAfterItem . UDecl
 
 -- TODO uniquely name all variables or make this function take in the annotated type too
--- | remove any context items chronologically after the specified variable's annotation,
+-- | remove any context items chronologically after the (last) specified variable's annotation,
 -- excluding the variable annotation from the result
-removeItemsAfterVarAnnot :: String -> ContextModifier a
-removeItemsAfterVarAnnot x = removeItemsAfterCondition (itemHasName (VName x))
+removeItemsAfterVarAnnot :: String -> Type a -> ContextModifier a
+removeItemsAfterVarAnnot x t = removeItemsAfterItem (VarAnnot x t)
 
 -- | remove any context items chronologically after the given one, excluding the given item from the result.
 removeItemsAfterItem :: ContextItem a -> ContextModifier a
 removeItemsAfterItem item = removeItemsAfterCondition (item ==)
 
--- | remove any context items chronologically after the first passing of the given predicate.
+-- | remove any context items chronologically after the last passing of the given predicate.
 -- The passing context item will be excluded from the result
 removeItemsAfterCondition :: (ContextItem a -> Bool) -> ContextModifier a
 removeItemsAfterCondition p = modifyContext $ \items ->
   items
-  |> reverse
-  |> takeWhile (not . p)
-  |> reverse
+  |> dropWhile (not .p)
+  |> safeTail
+  where
+    safeTail [] = []
+    safeTail (_:xs) = xs
 
 
 -- item replacement

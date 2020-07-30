@@ -7,7 +7,6 @@ import Types
 import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
---import Debug.Trace
 
 -- TODO add location, maybe exprs/reasons
 -- | Type error.
@@ -34,12 +33,14 @@ initialContext = emptyContext
 throw :: TypeError a -> TypeChecker a b
 throw = lift . Left
 
+-- | throw a mismatch error with the two types simplified
 mismatch :: Type a -> Type a -> TypeChecker a b
 mismatch a b = do
   a' <- simplify a
   b' <- simplify b
   throw $ Mismatch a' b'
 
+-- | Assert that the current context is well-formed
 assertCtxWF :: TypeChecker a ()
 assertCtxWF = do
   ctx <- getContext
@@ -47,6 +48,7 @@ assertCtxWF = do
     Left err -> throw $ TypeWFError err
     Right () -> return ()
 
+-- | Assert that the current type is well-formed
 assertTypeWF :: Type a -> TypeChecker a ()
 assertTypeWF t = do
   ctx <- getContext
@@ -54,6 +56,11 @@ assertTypeWF t = do
     Left err -> throw $ TypeWFError err
     Right () -> return ()
 
+-- | Assert that the current context contains an e decl of the specified name
+assertCtxHasEDecl :: String -> TypeChecker a ()
+assertCtxHasEDecl = assertCtxHasItem . EDecl
+
+-- | Assert that the current context contains the given context item (e sol not ok)
 assertCtxHasItem :: ContextItem a -> TypeChecker a ()
 assertCtxHasItem item = do
   ctx <- getContext
@@ -91,9 +98,12 @@ infix 4 <:
 -- Exvar
 EVar name _ <: EVar name' _
   -- don't mismatch if names are different. InstantiateL will handle that
-  | name == name' = return ()
+  | name == name' = assertCtxHasEDecl name
 -- Var
-UVar name tag <: UVar name' tag' = unless (name == name') (mismatch (UVar name tag) (UVar name' tag'))
+UVar name tag <: UVar name' tag' = do
+  assertTypeWF (UVar name tag)
+  assertTypeWF (UVar name' tag')
+  unless (name == name') (mismatch (UVar name tag) (UVar name' tag'))
 -- Unit
 One{} <: One{} = return ()
 TInt{} <: TInt{} = return ()
@@ -121,10 +131,12 @@ t <: TyScheme name body _ = do
   modifyContextTC $ removeItemsAfterUDecl name
 -- InstantiateL
 EVar name _ <: t = do
+  assertCtxHasEDecl name
   occursCheck (EName name) t
   instantiateL name t
 -- InstantiateR
 t <: EVar name _ = do
+  assertCtxHasEDecl name
   occursCheck (EName name) t
   instantiateR t name
 -- These need to be last so they don't cover the scheme cases
@@ -148,6 +160,7 @@ instantiateL :: String -> Type a -> TypeChecker a ()
 instantiateL name (EVar name' tag') = reachHelp name name' tag'
 -- InstLArr
 instantiateL name (TyArr argType retType tag) = do
+  assertCtxHasEDecl name
   -- argName and retName are the names of the existentials corresponding to argType and retType
   (argName, retName, articulatedCtx) <- instArrReplacement name tag <$> getContext
   putContext articulatedCtx
@@ -158,12 +171,14 @@ instantiateL name (TyArr argType retType tag) = do
   instantiateL retName simplifiedRetType
 -- InstLAllR
 instantiateL name (TyScheme uname body _) = do
+  assertCtxHasEDecl name
   modifyContextTC $ addUDecl uname
   instantiateL name body
   modifyContextTC $ removeItemsAfterUDecl uname
 -- InstLSolve
 instantiateL name t = do
-  -- TODO check t well formedness against ctx
+  assertCtxHasEDecl name
+  assertTypeWF t
   modifyContextTC $ recordESol name t
 
 -- | Instantiate the specified existential such that A <: a? (supertype).
@@ -174,6 +189,7 @@ instantiateR (EVar name tag) name' = reachHelp name name' tag
 -- InstRArr
 instantiateR (TyArr argType retType tag) name = do
   -- TODO abstract with instantiateLArr
+  assertCtxHasEDecl name
   -- argName and retName are the names of the existentials corresponding to argType and retType
   (argName, retName, articulatedCtx) <- instArrReplacement name tag <$> getContext
   putContext articulatedCtx
@@ -184,6 +200,7 @@ instantiateR (TyArr argType retType tag) name = do
   instantiateR simplifiedRetType retName
 -- InstRAllL
 instantiateR (TyScheme uName body tag) name = do
+  assertCtxHasEDecl name
   (eName, ctxAfterName) <- getFreshNameFrom uName <$> getContext
   putContext ctxAfterName
   modifyContextTC $ addEMarker eName
@@ -192,8 +209,9 @@ instantiateR (TyScheme uName body tag) name = do
   instantiateR bodyWithExistential name
   modifyContextTC $ removeItemsAfterEMarker eName
 -- InstRSolve
-instantiateR t name =
-  -- TODO check t well formedness against ctx
+instantiateR t name = do
+  assertCtxHasEDecl name
+  assertTypeWF t
   modifyContextTC $ recordESol name t
 
 
@@ -205,6 +223,8 @@ occursCheck name t = when (name `elem` getFreeVars t) (throw (OccursError name t
 -- while preserving context well-formedness
 reachHelp :: String -> String -> a -> TypeChecker a ()
 reachHelp name name' tag = do
+  assertCtxHasEDecl name
+  assertCtxHasEDecl name'
   ctx <- getContext
   -- TODO check both types' well-formedness with respect to ctx
   case whichEDeclLast name name' ctx of
@@ -234,7 +254,7 @@ typeCheck e (TyScheme uName body _) = do
 typeCheck (Lambda name body _) (TyArr argType retType _) = do
   modifyContextTC $ addVarAnnot name argType
   typeCheck body retType
-  modifyContextTC $ removeItemsAfterVarAnnot name
+  modifyContextTC $ removeItemsAfterVarAnnot name argType
 typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
   TyArr t retType tag' <: TyArr argType retType tag'
   typeCheck (Lambda name body tag) arr
@@ -303,7 +323,7 @@ typeSynthLambdaHelp name retName argType retType body tag = do
   modifyContextTC $ addEDecl retName
   modifyContextTC $ addVarAnnot name argType
   typeCheck body retType
-  modifyContextTC $ removeItemsAfterVarAnnot name
+  modifyContextTC $ removeItemsAfterVarAnnot name argType
   return $ TyArr argType retType tag
 
 -- | common bit between let and letAnnot synthesis cases with free variables extracted as parameters
@@ -317,12 +337,20 @@ typeSynthLetHelp x tX body = do
   modifyContextTC $ addVarAnnot x tX
   let tBody = EVar tBodyName (getTag body)
   typeCheck body tBody
-  modifyContextTC $ removeItemsAfterVarAnnot x
+  modifyContextTC $ removeItemsAfterVarAnnot x tX
   return tBody
 
 -- | Run type synthesis under the given context
 runTypeSynth :: Expr a -> Context a -> Either (TypeError a) (Type a, Context a)
 runTypeSynth e = runStateT (typeSynth e)
+
+-- | Run type synthesis under the given context and simplify the result type
+runTypeSynthSimplify :: Expr a -> Context a -> Either (TypeError a) (Type a, Context a)
+runTypeSynthSimplify e = runStateT res
+  where
+    res = do
+      t <- typeSynth e
+      simplify t
 
 -- | Given a function type and argument expression being applied to a function of that type,
 -- synthesize the type of the application.
@@ -341,6 +369,7 @@ typeSynthApp (TyArr argType retType _) x = do
   return retType
 -- a?App
 typeSynthApp (EVar eName tag) x = do
+  assertCtxHasItem (EDecl eName)
   (argName, retName, ctx') <- instArrReplacement eName tag <$> getContext
   putContext ctx'
   let argType = EVar argName tag

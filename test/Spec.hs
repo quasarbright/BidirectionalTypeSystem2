@@ -95,6 +95,16 @@ ctxTests = TestLabel "context tests" $ TestList [
         in  teq "after marker" expected (removeItemsAfterEMarker "a" ctx)
         ,
         let
+          ctx = emptyContext |> addUDecl "b" |> addUDecl "a" |> addUDecl "a" |> addUDecl "c"
+          expected = emptyContext |> addUDecl "b" |> addUDecl "a"
+        in teq "dup uvar removal" expected (removeItemsAfterUDecl "a" ctx)
+        ,
+        let
+          ctx = emptyContext |> addUDecl "b" |> addUDecl "a" |> addUDecl "d" |> addUDecl "a" |> addUDecl "c"
+          expected = emptyContext |> addUDecl "b" |> addUDecl "a" |> addUDecl "d"
+        in teq "dup uvar removal" expected (removeItemsAfterUDecl "a" ctx)
+        ,
+        let
           ctx = simpleCtx
           expected =
             emptyContext
@@ -167,6 +177,7 @@ subtypeCtx =
   |> addUDecl "a"
   |> addEMarker "b"
   |> addEDecl "b"
+  |> addUDecl "q"
 
 instSubtypeCtx =
   emptyContext
@@ -201,13 +212,15 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypePass tint tint
   , tSubtypePass one one
   , tSubtypePass (uvar "a") (uvar "a")
-  , tSubtypePass (evar "a") (evar "a")
-  , tSubtypePass (evar "a" \-> one) (evar "a" \-> one)
+  , tSubtypeError (uvar "z") (uvar "z") (TypeWFError $ UnboundUVar "z" ())
+  , tSubtypePass (evar "b") (evar "b")
+  , tSubtypePass (evar "b" \-> one) (evar "b" \-> one)
+  , tSubtypeError (evar "z") one (ContextItemNotFound (EDecl "z"))
   , tSubtypeMismatch one tint
   , tSubtypeMismatch tint one
   , tSubtypeMismatch one (uvar "a")
   , tSubtypeMismatch (uvar "a") one
-  , tSubtypeMismatch (uvar "a") (uvar "b")
+  , tSubtypeMismatch (uvar "a") (uvar "q")
   , tSubtypeMismatch (uvar "a") (one \-> one)
   , tSubtypeMismatch (one \-> one) (uvar "a")
   , tSubtypeError (tint \-> tint) (one \-> one) (Mismatch one tint)
@@ -215,8 +228,8 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypeError (one \-> one) (uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
   , tSubtypeError (uvar "a" \-> uvar "a") (one \-> one) (Mismatch one (uvar "a"))
   , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch (uvar "c") one)
-  , tSubtypeError (evar "c") (evar "c" \-> one) (OccursError (EName "c") (evar "c" \-> one))
-  , tSubtypeError (evar "c" \-> one) (evar "c") (OccursError (EName "c") (evar "c" \-> one))
+  , tSubtypeError (evar "b") (evar "b" \-> one) (OccursError (EName "b") (evar "b" \-> one))
+  , tSubtypeError (evar "b" \-> one) (evar "b") (OccursError (EName "b") (evar "b" \-> one))
   -- instantiation
   , tSubtypePassInst emptyContext ("a" \/. uvar "a" \-> uvar "a") (one \-> one) emptyContext
   , tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") (one \-> one) instSubtypeCtx
@@ -385,6 +398,14 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthErr emptyContext ("f" \. ("x" \. var "f" \$ (var "x" \$ var "x")) \$ ("x" \. var "f" \$ (var "x" \$ var "x"))) (OccursError (EName "a$5$14") (evar "a$5$14" \-> evar "a$5$13"))
   -- apply non-function
   , tSynthErr emptyContext (unit \$ unit) (Mismatch (evar "a" \-> evar "b") one)
+  , teq "forall shadowing regression test" (Right (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")) )  (runTypeCheck (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")))
+  , teq "forall shadowing regression test" (Right (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a") )  (runTypeCheck (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a"))
+  , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" one unit (var "x")) (var "x")) one
+  , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" tint (int 50) unit) (var "x")) one
+  -- TODO debug. should be the other way around. Not even a shadowing problem.
+  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint unit (var "x")) (var "x")) (Mismatch one tint)
+  -- TODO debug. should be the other way around. Not even a shadowing problem.
+  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint (int 100) (var "x")) (var "x")) (Mismatch tint one)
   ]
 
 tests :: Test
@@ -396,3 +417,7 @@ tests = TestList
 
 main :: IO Counts
 main = runTestTT tests
+
+-- TODO disallow variable shadowing? or test it to see if it can cause problems
+-- TODO test the forall shadowing more. You are allowing non-well-formed contexts, but it would be unreasonable to
+--   expect the user to make unique variables for all of their universal types. Just make sure it can't screw up.
