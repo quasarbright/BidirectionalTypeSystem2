@@ -54,7 +54,6 @@ putContext = put
 modifyContextTC :: (Context a -> Context a) -> TypeChecker a ()
 modifyContextTC = modify
 
--- TODO use this everywhere instead after testing
 simplify :: Type a -> TypeChecker a (Type a)
 simplify t = do
   simplifier <- contextAsSubstitution <$> getContext
@@ -221,8 +220,6 @@ typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
 -- Sub
 typeCheck e expectedType = do
   synthesizedType <- typeSynth e
-  -- TODO change context reads into this format. way nicer, no names
---  simplify <- contextAsSubstitution <$> getContext
   synthesizedType' <-  simplify synthesizedType
   expectedType' <- simplify expectedType
   synthesizedType' <: expectedType'
