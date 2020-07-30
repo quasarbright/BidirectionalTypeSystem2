@@ -8,7 +8,6 @@ import Types
 
 -- former to do: think about a context [x :: \/a.a->a,  y :: \/a.a->a->a,  decl a] or something similar
 -- Thought about it, couldn't cause an error like "expected a, got a" in haskell, so I should be fine.
--- TODO test it though. Try to break it in this language
 
 -- | An item occurring in a type checking context
 data ContextItem a = UDecl String
@@ -196,7 +195,6 @@ removeItemsAfterEMarker = removeItemsAfterItem . EMarker
 removeItemsAfterUDecl :: String -> ContextModifier a
 removeItemsAfterUDecl = removeItemsAfterItem . UDecl
 
--- TODO uniquely name all variables or make this function take in the annotated type too
 -- | remove any context items chronologically after the (last) specified variable's annotation,
 -- excluding the variable annotation from the result
 removeItemsAfterVarAnnot :: String -> Type a -> ContextModifier a
@@ -285,8 +283,6 @@ data ContextWFError a = UnboundUVar String a
                       deriving(Eq, Show) -- TODO manual Show instance
 
 -- TODO return list of errors instead
--- TODO is it ok if ctx contains uvar "a" and you check a scheme forall a . T and add another "a"?
--- TODO what about b? = one -> b? recursive types
 -- | check the well-formedness of a type in the given context
 checkTypeWellFormedness :: Context a -> Type a -> Either (ContextWFError a) ()
 checkTypeWellFormedness ctx t =

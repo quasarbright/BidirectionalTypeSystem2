@@ -90,7 +90,6 @@ simplify t = do
 
 -- subtyping and instantiation
 
--- TODO assert decls in context for Gamma[a]
 -- | A <: B asserts that A is a subtype of B, where subtype means "more polymorphic than".
 -- May modify context to make the assertion be valid, such as the case of a? <: A.
 infix 4 <:
@@ -226,7 +225,6 @@ reachHelp name name' tag = do
   assertCtxHasEDecl name
   assertCtxHasEDecl name'
   ctx <- getContext
-  -- TODO check both types' well-formedness with respect to ctx
   case whichEDeclLast name name' ctx of
     Nothing -> error ("at least one edecl unbound of: "++show (EName name)++" and "++show (EName name'))
     Just lastName
@@ -377,6 +375,5 @@ typeSynthApp (EVar eName tag) x = do
   typeCheck x argType
   return retType
 -- tried to apply non-function type. Mismatch
--- TODO maybe manually throw Mismatch here?
 typeSynthApp t _ = throw $ Mismatch (TyArr (EVar "a" tag) (EVar "b" tag) tag) t
   where tag = getTag t
