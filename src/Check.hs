@@ -7,6 +7,7 @@ import Types
 import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
+import Debug.Trace
 
 -- TODO add location, maybe exprs/reasons
 -- | Type error.
@@ -225,6 +226,9 @@ typeCheck (Lambda name body _) (TyArr argType retType _) = do
   modifyContextTC $ addVarAnnot name argType
   typeCheck body retType
   modifyContextTC $ removeItemsAfterVarAnnot name
+typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
+  TyArr t retType tag' <: TyArr argType retType tag'
+  typeCheck (Lambda name body tag) arr
 -- TODO tuple checking here similar to ->I <=
 -- Sub
 typeCheck e expectedType = do
@@ -264,17 +268,54 @@ typeSynth (Lambda name body tag) = do
   let argType = EVar argName tag
   let retType = EVar retName tag
   modifyContextTC $ addEDecl argName
-  modifyContextTC $ addEDecl retName
-  modifyContextTC $ addVarAnnot name argType
-  typeCheck body retType
-  modifyContextTC $ removeItemsAfterVarAnnot name
-  return $ TyArr argType retType tag
+  typeSynthLambdaHelp name retName argType retType body tag
+-- ->AnnotI =>
+-- instead of \x.e => a? -> b?, it's \x::A.e => A -> b?
+typeSynth (LambdaAnnot name t body tag) = do
+  startCtx <- getContext
+  let (retName, ctx') = getFreshNameFrom "b" startCtx
+  putContext ctx'
+  let argType = t
+  let retType = EVar retName tag
+  typeSynthLambdaHelp name retName argType retType body tag
+-- let =>
+typeSynth (Let x e body _) = do
+  tX <- typeSynth e
+  typeSynthLetHelp x tX body
+-- letAnnot =>
+typeSynth (LetAnnot x tX e body _) = do
+  typeCheck e tX
+  typeSynthLetHelp x tX body
 -- ->E =>
 typeSynth (App f x _) = do
   fType <- typeSynth f
   ctx <- getContext
   let fType' = contextAsSubstitution ctx fType
   typeSynthApp fType' x
+
+-- | common bit between lambda and lambda annot synthesis cases with free variables extracted as parameters.
+typeSynthLambdaHelp :: String -> String -> Type a -> Type a -> Expr a -> a -> TypeChecker a (Type a)
+typeSynthLambdaHelp name retName argType retType body tag = do
+  modifyContextTC $ addEDecl retName
+  modifyContextTC $ addVarAnnot name argType
+  typeCheck body retType
+  modifyContextTC $ removeItemsAfterVarAnnot name
+  return $ TyArr argType retType tag
+
+-- | common bit between let and letAnnot synthesis cases with free variables extracted as parameters
+-- uses the same trick as the ->I => rule for keeping the output existential and eliminating anything after the x::A
+-- in the output context
+typeSynthLetHelp :: String -> Type a -> Expr a -> StateT (Context a) (Either (TypeError a)) (Type a)
+typeSynthLetHelp x tX body = do
+  startCtx <- getContext
+  let (tBodyName, ctx') = getFreshNameFrom "b" startCtx
+  putContext ctx'
+  modifyContextTC $ addEDecl tBodyName
+  modifyContextTC $ addVarAnnot x tX
+  let tBody = EVar tBodyName (getTag body)
+  typeCheck body tBody
+  modifyContextTC $ removeItemsAfterVarAnnot x
+  return tBody
 
 -- | Run type synthesis under the given context
 runTypeSynth :: Expr a -> Context a -> Either (TypeError a) (Type a, Context a)
@@ -309,3 +350,6 @@ typeSynthApp (EVar eName tag) x = do
 -- TODO maybe manually throw Mismatch here?
 typeSynthApp t _ = throw $ Mismatch (TyArr (EVar "a" tag) (EVar "b" tag) tag) t
   where tag = getTag t
+
+-- debug
+go () = runTypeSynth (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ unit)) emptyContext

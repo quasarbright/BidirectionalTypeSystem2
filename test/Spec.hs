@@ -42,6 +42,20 @@ idApp = ("id" \. "f" \. "x" \. (var "id" \$ var "f") \$ (var "id" \$ var "x"))
           \-> uvar "a" -- x
           \-> uvar "b") -- f x
 
+-- | a less polymorphic example of higher rank polymorphism using annotated lambdas.
+-- the limitation with annotated lambdas is that you can't mention the same universal in different arguments' annotations
+idAppAnnot :: Expr ()
+idAppAnnot = lamAnnot "id" ("a" \/. uvar "a" \-> uvar "a") $
+             lamAnnot "f" (one \-> one) $
+             lamAnnot "x" one $
+             var "id" \$ var "f" \$ (var "id" \$ var "x")
+
+-- | higher rank polymorphism let binding followed by its usage
+idAppLetWithUse :: Expr ()
+idAppLetWithUse = letAnnot "idApp" ("a" \/. "b" \/. ("c" \/. uvar "c" \-> uvar "c") \-> (uvar "a" \-> uvar "b") \-> uvar "a" \-> uvar "b")
+           ("id"\."f"\."x"\.  var "id" \$ var "f" \$ (var "id" \$ var "x"))
+           (var "idApp" \$ id_ \$ id_ \$ unit)
+
 -- | higher rank polymorphism in haskell. Note the inner forall
 idAppHask :: forall a b . (forall c . c -> c) -> (a -> b) -> a -> b
 idAppHask idFun f x = idFun f (idFun x)
@@ -184,15 +198,20 @@ subtypeTests :: Test
 subtypeTests = TestLabel "subtype tests" $ TestList
   [ tpass
   -- no instantiation
+  , tSubtypePass tint tint
   , tSubtypePass one one
   , tSubtypePass (uvar "a") (uvar "a")
   , tSubtypePass (evar "a") (evar "a")
   , tSubtypePass (evar "a" \-> one) (evar "a" \-> one)
+  , tSubtypeMismatch one tint
+  , tSubtypeMismatch tint one
   , tSubtypeMismatch one (uvar "a")
   , tSubtypeMismatch (uvar "a") one
   , tSubtypeMismatch (uvar "a") (uvar "b")
   , tSubtypeMismatch (uvar "a") (one \-> one)
   , tSubtypeMismatch (one \-> one) (uvar "a")
+  , tSubtypeError (tint \-> tint) (one \-> one) (Mismatch one tint)
+  , tSubtypeError (one \-> one) (tint \-> tint) (Mismatch tint one)
   , tSubtypeError (one \-> one) (uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
   , tSubtypeError (uvar "a" \-> uvar "a") (one \-> one) (Mismatch one (uvar "a"))
   , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch (uvar "c") one)
@@ -288,6 +307,16 @@ check if the identity function is a subtype of the unit-only identity function
 tSynth :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
 tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (runTypeSynth e ctx)
 
+-- | like tSynth, except it simplifies the actual type and ignores the output context
+tSynthSimple :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Test
+tSynthSimple ctx e t = teq (show e++" => "++show t) (Right t) actualType
+  where
+    actual = runTypeSynth e ctx
+    actualType = case actual of
+      Left err -> Left err
+      Right (t', ctx') -> Right $ contextAsSubstitution ctx' t'
+
+
 tSynthErr :: (Eq a, Show a) => Context a -> Expr a -> TypeError a -> Test
 tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) (runTypeSynth e ctx)
 
@@ -329,8 +358,23 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
                       \-> uvar "a" -- x
                       \-> uvar "b") -- f x
     in tSynth emptyContext idApp t emptyContext
+  -- simple annotated lambda
+  , tSynth emptyContext (lamAnnot "x" one (var "x")) (one \-> evar "b$0") (emptyContext |> addESol "b$0" one)
+  -- simple let statement
+  , tSynthSimple emptyContext (elet "x" unit (var "x")) one
+  -- simple annotated let statement
+  , tSynthSimple emptyContext (letAnnot "x" one unit (var "x")) one
+  , tSynthSimple emptyContext (letAnnot "id" (one \-> one) ("x" \. var "x") (var "id" \$ unit)) one
+  , tSynthSimple emptyContext (elet "id" ("x" \. var "x") (var "id" \$ unit)) one
+  -- polymorphic identity function in let binding TODO debug. It's outputting an existential that isn't in the context!
+  , tSynth emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ unit)) (evar "b$4") (emptyContext |> addESol "b$4" one)
+  , tSynth emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ var "id" \$ (var "id" \$ unit))) (evar "b$4") (emptyContext |> addESol "b$4" one)
   -- use polymorphic identity function
   , tSynth emptyContext (idApp \$ id_ \$ id_ \$ unit) (evar "a$20") (emptyContext |> addESol "a$20" one |> addESol "b$22" (evar "a$20"))
+  -- use annotated polymorphic identity function
+  , tSynthSimple emptyContext (idAppAnnot \$ id_ \$ id_ \$ unit) one
+  -- use let-annotated polymorphic identity function
+  , tSynthSimple emptyContext idAppLetWithUse one
   , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
   -- different types for branches of if
   , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch (evar "a$33" \-> one) one)
