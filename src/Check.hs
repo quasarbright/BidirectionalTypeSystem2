@@ -84,8 +84,7 @@ TyArr arg ret _ <: TyArr arg' ret' _ = do
   retSimplified <: ret'Simplified
 -- forall L
 TyScheme name body tag <: t = do
-  startCtx <- getContext
-  let (eName, startCtx') = getFreshNameFrom name startCtx
+  (eName, startCtx') <- getFreshNameFrom name <$> getContext
   let markedCtx = startCtx'
                   |> addEMarker eName
                   |> addEDecl eName
@@ -96,9 +95,7 @@ TyScheme name body tag <: t = do
 -- no need for a@TyScheme{} <: b, it's already covered
 -- forall R
 t <: TyScheme name body _ = do
-  startCtx <- getContext
-  let ctxWithADecl = startCtx |> addUDecl name
-  put ctxWithADecl
+  modifyContextTC $ addUDecl name
   t <: body
   modifyContextTC $ removeItemsAfterUDecl name
 -- InstantiateL
@@ -130,9 +127,8 @@ instantiateL :: String -> Type a -> TypeChecker a ()
 instantiateL name (EVar name' tag') = reachHelp name name' tag'
 -- InstLArr
 instantiateL name (TyArr argType retType tag) = do
-  startCtx <- getContext
   -- argName and retName are the names of the existentials corresponding to argType and retType
-  let (argName, retName, articulatedCtx) = instArrReplacement name tag startCtx
+  (argName, retName, articulatedCtx) <- instArrReplacement name tag <$> getContext
   putContext articulatedCtx
   -- we need to take in argType or more, so we need the supertype
   instantiateR argType argName
@@ -157,9 +153,8 @@ instantiateR (EVar name tag) name' = reachHelp name name' tag
 -- InstRArr
 instantiateR (TyArr argType retType tag) name = do
   -- TODO abstract with instantiateLArr
-  startCtx <- getContext
   -- argName and retName are the names of the existentials corresponding to argType and retType
-  let (argName, retName, articulatedCtx) = instArrReplacement name tag startCtx
+  (argName, retName, articulatedCtx) <- instArrReplacement name tag <$> getContext
   putContext articulatedCtx
   -- we need to take in argType or less, so subtype
   instantiateL argName argType
@@ -168,8 +163,7 @@ instantiateR (TyArr argType retType tag) name = do
   instantiateR simplifiedRetType retName
 -- InstRAllL
 instantiateR (TyScheme uName body tag) name = do
-  startCtx <- getContext
-  let (eName, ctxAfterName) = getFreshNameFrom uName startCtx
+  (eName, ctxAfterName) <- getFreshNameFrom uName <$> getContext
   putContext ctxAfterName
   modifyContextTC $ addEMarker eName
   modifyContextTC $ addEDecl eName
@@ -255,8 +249,7 @@ typeSynth (Unit tag) = return $ One tag
 typeSynth (EInt _ tag) = return $ TInt tag
 -- ->I =>
 typeSynth (Lambda name body tag) = do
-  startCtx <- getContext
-  let (argName, ctx') = getFreshNameFrom "a" startCtx
+  (argName, ctx') <- getFreshNameFrom "a" <$> getContext
   let (retName, ctx'') = getFreshNameFrom "b" ctx'
   putContext ctx''
   let argType = EVar argName tag
@@ -266,8 +259,7 @@ typeSynth (Lambda name body tag) = do
 -- ->AnnotI =>
 -- instead of \x.e => a? -> b?, it's \x::A.e => A -> b?
 typeSynth (LambdaAnnot name t body tag) = do
-  startCtx <- getContext
-  let (retName, ctx') = getFreshNameFrom "b" startCtx
+  (retName, ctx') <- getFreshNameFrom "b" <$> getContext
   putContext ctx'
   let argType = t
   let retType = EVar retName tag
@@ -300,8 +292,7 @@ typeSynthLambdaHelp name retName argType retType body tag = do
 -- in the output context
 typeSynthLetHelp :: String -> Type a -> Expr a -> StateT (Context a) (Either (TypeError a)) (Type a)
 typeSynthLetHelp x tX body = do
-  startCtx <- getContext
-  let (tBodyName, ctx') = getFreshNameFrom "b" startCtx
+  (tBodyName, ctx') <- getFreshNameFrom "b" <$> getContext
   putContext ctx'
   modifyContextTC $ addEDecl tBodyName
   modifyContextTC $ addVarAnnot x tX
@@ -319,8 +310,7 @@ runTypeSynth e = runStateT (typeSynth e)
 typeSynthApp :: Type a -> Expr a -> TypeChecker a (Type a)
 -- \/ app
 typeSynthApp (TyScheme uName body tag) x = do
-  startCtx <- getContext
-  let (eName, ctxAfterName) = getFreshNameFrom uName startCtx
+  (eName, ctxAfterName) <- getFreshNameFrom uName <$> getContext
   putContext ctxAfterName
   let eType = EVar eName tag
   modifyContextTC $ addEDecl eName
@@ -332,8 +322,7 @@ typeSynthApp (TyArr argType retType _) x = do
   return retType
 -- a?App
 typeSynthApp (EVar eName tag) x = do
-  startCtx <- getContext
-  let (argName, retName, ctx') = instArrReplacement eName tag startCtx
+  (argName, retName, ctx') <- instArrReplacement eName tag <$> getContext
   putContext ctx'
   let argType = EVar argName tag
   let retType = EVar retName tag
