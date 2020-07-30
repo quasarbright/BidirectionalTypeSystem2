@@ -12,6 +12,7 @@ import Control.Monad
 -- TODO add location, maybe exprs/reasons
 -- | Type error.
 data TypeError a = TypeWFError (ContextWFError a)
+                 | ContextItemNotFound (ContextItem a)
                  | Mismatch (Type a) (Type a)
                  | OccursError Name (Type a)
                  | InternalCheckingError String
@@ -38,6 +39,27 @@ mismatch a b = do
   a' <- simplify a
   b' <- simplify b
   throw $ Mismatch a' b'
+
+assertCtxWF :: TypeChecker a ()
+assertCtxWF = do
+  ctx <- getContext
+  case checkContextWellFormedness ctx of
+    Left err -> throw $ TypeWFError err
+    Right () -> return ()
+
+assertTypeWF :: Type a -> TypeChecker a ()
+assertTypeWF t = do
+  ctx <- getContext
+  case checkTypeWellFormedness ctx t of
+    Left err -> throw $ TypeWFError err
+    Right () -> return ()
+
+assertCtxHasItem :: ContextItem a -> TypeChecker a ()
+assertCtxHasItem item = do
+  ctx <- getContext
+  case findItem (==item) ctx of
+    Just{} -> return ()
+    Nothing -> throw $ ContextItemNotFound item
 
 -- I'm making these functions now in case I eventually add more than just a context to the state.
 -- That way, I won't have to change how existing code is written, just these functions
