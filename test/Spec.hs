@@ -366,7 +366,6 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext (letAnnot "x" one unit (var "x")) one
   , tSynthSimple emptyContext (letAnnot "id" (one \-> one) ("x" \. var "x") (var "id" \$ unit)) one
   , tSynthSimple emptyContext (elet "id" ("x" \. var "x") (var "id" \$ unit)) one
-  -- polymorphic identity function in let binding TODO debug. It's outputting an existential that isn't in the context!
   , tSynth emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ unit)) (evar "b$4") (emptyContext |> addESol "b$4" one)
   , tSynth emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ var "id" \$ (var "id" \$ unit))) (evar "b$4") (emptyContext |> addESol "b$4" one)
   -- use polymorphic identity function

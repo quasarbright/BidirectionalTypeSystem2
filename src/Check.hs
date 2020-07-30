@@ -7,7 +7,7 @@ import Types
 import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
-import Debug.Trace
+--import Debug.Trace
 
 -- TODO add location, maybe exprs/reasons
 -- | Type error.
@@ -35,8 +35,8 @@ throw = lift . Left
 
 mismatch :: Type a -> Type a -> TypeChecker a b
 mismatch a b = do
-  a' <- _simplify a
-  b' <- _simplify b
+  a' <- simplify a
+  b' <- simplify b
   throw $ Mismatch a' b'
 
 -- I'm making these functions now in case I eventually add more than just a context to the state.
@@ -55,15 +55,14 @@ modifyContextTC :: (Context a -> Context a) -> TypeChecker a ()
 modifyContextTC = modify
 
 -- TODO use this everywhere instead after testing
-_simplify :: Type a -> TypeChecker a (Type a)
-_simplify t = do
+simplify :: Type a -> TypeChecker a (Type a)
+simplify t = do
   simplifier <- contextAsSubstitution <$> getContext
   return (simplifier t)
 
 -- subtyping and instantiation
 
 -- TODO assert decls in context for Gamma[a]
--- TODO should you try foralls first, or instantiates first? going with vertical order in the paper for now.
 -- | A <: B asserts that A is a subtype of B, where subtype means "more polymorphic than".
 -- May modify context to make the assertion be valid, such as the case of a? <: A.
 infix 4 <:
@@ -80,10 +79,9 @@ TInt{} <: TInt{} = return ()
 -- ->
 TyArr arg ret _ <: TyArr arg' ret' _ = do
   arg' <: arg
-  -- output context of arg' <: arg
-  ctx' <- getContext
-  let substitute = contextAsSubstitution ctx'
-  substitute ret <: substitute ret'
+  retSimplified <- simplify ret
+  ret'Simplified <- simplify ret'
+  retSimplified <: ret'Simplified
 -- forall L
 TyScheme name body tag <: t = do
   startCtx <- getContext
@@ -138,9 +136,7 @@ instantiateL name (TyArr argType retType tag) = do
   putContext articulatedCtx
   -- we need to take in argType or more, so we need the supertype
   instantiateR argType argName
-  ctxAfterInst <- getContext
-  let substitute = contextAsSubstitution ctxAfterInst
-  let simplifiedRetType = substitute retType
+  simplifiedRetType <- simplify retType
   -- we need to return retType or less, so we need the subtype
   instantiateL retName simplifiedRetType
 -- InstLAllR
@@ -167,9 +163,7 @@ instantiateR (TyArr argType retType tag) name = do
   putContext articulatedCtx
   -- we need to take in argType or less, so subtype
   instantiateL argName argType
-  ctxAfterInst <- getContext
-  let substitute = contextAsSubstitution ctxAfterInst
-  let simplifiedRetType = substitute retType
+  simplifiedRetType <- simplify retType
   -- we need to return retType or more, so supertype
   instantiateR simplifiedRetType retName
 -- InstRAllL
@@ -234,9 +228,9 @@ typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
 typeCheck e expectedType = do
   synthesizedType <- typeSynth e
   -- TODO change context reads into this format. way nicer, no names
-  simplify <- contextAsSubstitution <$> getContext
-  let synthesizedType' = simplify synthesizedType
-  let expectedType' = simplify expectedType
+--  simplify <- contextAsSubstitution <$> getContext
+  synthesizedType' <-  simplify synthesizedType
+  expectedType' <- simplify expectedType
   synthesizedType' <: expectedType'
 
 -- | Type check with the given context
@@ -289,8 +283,7 @@ typeSynth (LetAnnot x tX e body _) = do
 -- ->E =>
 typeSynth (App f x _) = do
   fType <- typeSynth f
-  ctx <- getContext
-  let fType' = contextAsSubstitution ctx fType
+  fType' <- simplify fType
   typeSynthApp fType' x
 
 -- | common bit between lambda and lambda annot synthesis cases with free variables extracted as parameters.
@@ -350,6 +343,3 @@ typeSynthApp (EVar eName tag) x = do
 -- TODO maybe manually throw Mismatch here?
 typeSynthApp t _ = throw $ Mismatch (TyArr (EVar "a" tag) (EVar "b" tag) tag) t
   where tag = getTag t
-
--- debug
-go () = runTypeSynth (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") ("x" \. var "x") (var "id" \$ unit)) emptyContext
