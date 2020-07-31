@@ -13,17 +13,25 @@ import Control.Monad
 data TypeError a = TypeWFError (ContextWFError a)
                  | ContextItemNotFound (ContextItem a)
                  | Mismatch (Type a) (Type a)
+                 | AppliedNonFunction (Type a)
                  | OccursError Name (Type a)
                  | InternalCheckingError String
                  deriving(Eq, Show)
 
 -- TODO add a current location to the state for error location, and maybe exprs/reasons
 
--- | State for the type checker. Contains the type context, and the current expression being typed
+-- | State for the type checker. Contains the type context, and the current expression being typed.
+-- The current expression is initialized when running the computation. All typing functions assume that the current expression
+-- is up to date upon invocation, but they are responsible for temporarily updating the current expression when typing
+-- subexpressions. For example, when type checking a lambda, it is assumed that the current expression is the lambda.
+-- But when the body is checked, the current expression must temporarily be set to the body expression.
 type TCState a = (Context a, Maybe (Expr a))
 
+-- | Type alias for signatures of runner functions
+type TCMonad a = (Either (TypeError a, Maybe (Expr a)))
+
 -- | Monad stack for type checking. Holds a context as state and operates on Either type errors or b's
-type TypeChecker a b = StateT (TCState a) (Either (TypeError a, Maybe (Expr a))) b
+type TypeChecker a b = StateT (TCState a) (TCMonad a) b
 
 -- | Initial context for type checking. Contains builtins and their types.
 initialContext :: Context a
@@ -83,7 +91,7 @@ getContext = do
   (ctx, _) <- get
   return ctx
 
--- | get the current expression being type checked
+-- | get the current expression being typed
 getCurrentExpr :: TypeChecker a (Maybe (Expr a))
 getCurrentExpr = do
   (_,mExpr) <- get
@@ -95,15 +103,30 @@ putContext ctx = do
   (_, mExpr) <- get
   put (ctx, mExpr)
 
+-- | set the current expression being typed
 putCurrentExpr :: Expr a -> TypeChecker a ()
 putCurrentExpr e = do
   (ctx,_) <- get
   put (ctx,Just e)
 
+-- | locally set the current expression being typed in the given computation, and restore it to its previous value upon
+-- successful completion of the computation.
+localExpr :: Expr a -> TypeChecker a b -> TypeChecker a b
+localExpr e tc = do
+  old <- getCurrentExpr
+  putCurrentExpr e
+  result <- tc
+  ctx <- getContext
+  case old of
+    Just oldExpr -> putCurrentExpr oldExpr
+    Nothing -> put (ctx, Nothing)
+  return result
+
 -- | modify the context of the type checker
 modifyContextTC :: (Context a -> Context a) -> TypeChecker a ()
 modifyContextTC f = modify $ \(ctx, mExpr) -> (f ctx, mExpr)
 
+-- | simplify a type with respect to the current context (replaces existentials with their solutions).
 simplify :: Type a -> TypeChecker a (Type a)
 simplify t = do
   simplifier <- contextAsSubstitution <$> getContext
@@ -166,11 +189,11 @@ a@TInt{} <: b = mismatch a b
 a@TyArr{} <: b = mismatch a b
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
-evalSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) ()
+evalSubtype :: Type a -> Type a -> Context a -> TCMonad a ()
 evalSubtype a b ctx = evalStateT (a <: b) (ctx, Nothing)
 
 -- | run the subtype assertion with the given initial context, returning the final context
-runSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) (TCState a)
+runSubtype :: Type a -> Type a -> Context a -> TCMonad a (TCState a)
 runSubtype a b ctx  = snd <$> runStateT (a <: b) (ctx, Nothing)
 
 -- | Instantiate the specified existential such that a? <: A (subtype).
@@ -272,7 +295,7 @@ typeCheck e (TyScheme uName body _) = do
 -- ->I <=
 typeCheck (Lambda name body _) (TyArr argType retType _) = do
   modifyContextTC $ addVarAnnot name argType
-  typeCheck body retType
+  localExpr body $ typeCheck body retType
   modifyContextTC $ removeItemsAfterVarAnnot name argType
 typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
   TyArr t retType tag' <: TyArr argType retType tag'
@@ -286,7 +309,7 @@ typeCheck e expectedType = do
   synthesizedType' <: expectedType'
 
 -- | Type check with the given context
-runTypeCheck :: Expr a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) (TCState a)
+runTypeCheck :: Expr a -> Type a -> Context a -> TCMonad a (TCState a)
 runTypeCheck e t ctx = snd <$> runStateT (typeCheck e t) (ctx, Just e)
 
 -- | Synthesize a type for the given expression
@@ -299,7 +322,7 @@ typeSynth (Var name _) = do
     _ -> error "unbound variable in type synthesis"
 -- Anno
 typeSynth (Annot e t _) = do
-  typeCheck e t
+  localExpr e $ typeCheck e t
   return t
 -- 1I =>
 typeSynth (Unit tag) = return $ One tag
@@ -324,15 +347,15 @@ typeSynth (LambdaAnnot name t body tag) = do
   typeSynthLambdaHelp name retName argType retType body tag
 -- let =>
 typeSynth (Let x e body _) = do
-  tX <- typeSynth e
+  tX <- localExpr e $ typeSynth e
   typeSynthLetHelp x tX body
 -- letAnnot =>
 typeSynth (LetAnnot x tX e body _) = do
-  typeCheck e tX
+  localExpr e $ typeCheck e tX
   typeSynthLetHelp x tX body
 -- ->E =>
 typeSynth (App f x _) = do
-  fType <- typeSynth f
+  fType <- localExpr f $ typeSynth f
   fType' <- simplify fType
   typeSynthApp fType' x
 
@@ -341,7 +364,7 @@ typeSynthLambdaHelp :: String -> String -> Type a -> Type a -> Expr a -> a -> Ty
 typeSynthLambdaHelp name retName argType retType body tag = do
   modifyContextTC $ addEDecl retName
   modifyContextTC $ addVarAnnot name argType
-  typeCheck body retType
+  localExpr body $ typeCheck body retType
   modifyContextTC $ removeItemsAfterVarAnnot name argType
   return $ TyArr argType retType tag
 
@@ -355,16 +378,16 @@ typeSynthLetHelp x tX body = do
   modifyContextTC $ addEDecl tBodyName
   modifyContextTC $ addVarAnnot x tX
   let tBody = EVar tBodyName (getTag body)
-  typeCheck body tBody
+  localExpr body $ typeCheck body tBody
   modifyContextTC $ removeItemsAfterVarAnnot x tX
   return tBody
 
 -- | Run type synthesis under the given context
-runTypeSynth :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a)) (Type a, TCState a)
+runTypeSynth :: Expr a -> Context a -> TCMonad a (Type a, TCState a)
 runTypeSynth e ctx = runStateT (typeSynth e) (ctx, Just e)
 
 -- | Run type synthesis under the given context and simplify the result type
-runTypeSynthSimplify :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a)) (Type a, TCState a)
+runTypeSynthSimplify :: Expr a -> Context a -> TCMonad a (Type a, TCState a)
 runTypeSynthSimplify e ctx = runStateT res (ctx, Just e)
   where
     res = do
@@ -393,9 +416,7 @@ typeSynthApp (EVar eName tag) x = do
   putContext ctx'
   let argType = EVar argName tag
   let retType = EVar retName tag
-  typeCheck x argType
+  localExpr x $ typeCheck x argType
   return retType
 -- tried to apply non-function type. Mismatch
--- TODO just make a special error for this. Users shouldn't see EVars
-typeSynthApp t _ = throw $ Mismatch (TyArr (EVar "a" tag) (EVar "b" tag) tag) t
-  where tag = getTag t
+typeSynthApp t _ = throw $ AppliedNonFunction t

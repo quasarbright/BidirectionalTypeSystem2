@@ -406,6 +406,9 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext idAppLetWithUse one
   , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
   -- different types for branches of if
+  -- TODO make it so it mismatches with the universal type. When you instantiate a scheme, catch a left if that's possible
+  -- TODO investigate large error location
+  -- TODO test error locations in general
   , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch (evar "a$33" \-> one) one)
   -- successful if
   , tSynth emptyContext (if_ \$ true \$ unit \$ unit) one (emptyContext |> addESol "a$8" one)
@@ -414,7 +417,7 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   -- y combinator can't type check :(
   , tSynthErr emptyContext ("f" \. ("x" \. var "f" \$ (var "x" \$ var "x")) \$ ("x" \. var "f" \$ (var "x" \$ var "x"))) (OccursError (EName "a$5$14") (evar "a$5$14" \-> evar "a$5$13"))
   -- apply non-function
-  , tSynthErr emptyContext (unit \$ unit) (Mismatch (evar "a" \-> evar "b") one)
+  , tSynthErr emptyContext (unit \$ unit) (AppliedNonFunction one)
   -- forall shadowing regression tests
   , tCheck (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")) (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a"))
   , tCheck (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a") (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a")

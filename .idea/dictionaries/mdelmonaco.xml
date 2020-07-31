@@ -1,29 +1,35 @@
 <component name="ProjectDictionaryState">
   <dictionary name="mdelmonaco">
     <words>
+      <w>anno</w>
       <w>annot</w>
       <w>arg'</w>
       <w>bcffb</w>
       <w>ccaeb</w>
       <w>cdaa</w>
       <w>ctx</w>
+      <w>ctx'</w>
       <w>data.</w>
       <w>delmonaco</w>
       <w>evar</w>
       <w>existentials</w>
       <w>exprs</w>
+      <w>exvar</w>
       <w>fbfc</w>
       <w>formedness</w>
       <w>hask</w>
       <w>hpack</w>
       <w>monomorphic</w>
       <w>morphic</w>
+      <w>name'</w>
       <w>prec</w>
       <w>quasarbright</w>
       <w>ret'</w>
       <w>stackage</w>
       <w>subdirs</w>
+      <w>tag'</w>
       <w>tpass</w>
+      <w>type'</w>
       <w>uvar</w>
     </words>
   </dictionary>
