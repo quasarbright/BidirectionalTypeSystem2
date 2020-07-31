@@ -193,14 +193,22 @@ tSubtypePass a b = tSubtypePassInst subtypeCtx a b subtypeCtx
 
 -- | same as other version, but take in an input context and care about the output context
 tSubtypePassInst :: (Eq a, Show a) => Context a -> Type a -> Type a -> Context a -> Test
-tSubtypePassInst ctx a b ctx' = teq (show a++" <: "++show b) (Right ctx') (runSubtype a b ctx)
+tSubtypePassInst ctx a b ctx' = teq (show a++" <: "++show b) (Right ctx') actual
+  where
+    actual = case runSubtype a b ctx of
+      Left err -> Left err
+      Right (ctx'', _, _) -> Right ctx''
 
 tSubtypeError :: (Eq a, Show a) => Type a -> Type a -> TypeError a -> Test
 tSubtypeError = tSubtypeErrorInst subtypeCtx
 
 -- | same as other version, but take in an input context
 tSubtypeErrorInst :: (Eq a, Show a) => Context a -> Type a -> Type a -> TypeError a -> Test
-tSubtypeErrorInst ctx a b err = teq (show a++" <: "++show b) (Left err) (runSubtype a b ctx)
+tSubtypeErrorInst ctx a b err = teq (show a++" <: "++show b) (Left err) actual
+  where
+    actual = case runSubtype a b ctx of
+      Left (err, _, _) -> Left err
+      Right r -> Right r
 
 tSubtypeMismatch :: (Eq a, Show a) => Type a -> Type a -> Test
 tSubtypeMismatch a b = tSubtypeError a b (Mismatch a b)
@@ -318,20 +326,29 @@ check if the identity function is a subtype of the unit-only identity function
 -}
 
 tSynth :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
-tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (runTypeSynth e ctx)
+tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) actual
+  where
+    actual = case runTypeSynth e ctx of
+      Left err -> Left err
+      Right (t', (ctx'',_,_)) -> Right (t',ctx'')
 
 -- | like tSynth, except it simplifies the actual type and ignores the output context
 tSynthSimple :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Test
-tSynthSimple ctx e t = teq (show e++" => "++show t) (Right t) actualType
-  where
-    actual = runTypeSynth e ctx
-    actualType = case actual of
-      Left err -> Left err
-      Right (t', ctx') -> Right $ contextAsSubstitution ctx' t'
-
+tSynthSimple ctx e t = teq (show e++" => "++show t) (Right t) (fst <$> runTypeSynthSimplify e ctx)
 
 tSynthErr :: (Eq a, Show a) => Context a -> Expr a -> TypeError a -> Test
-tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) (runTypeSynth e ctx)
+tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) actual
+  where
+    actual = case runTypeSynth e ctx of
+      Left (err,_,_) -> Left err
+      Right r -> Right r
+
+tCheck :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
+tCheck ctx e t ctx' = teq (show e++" <= "++show t) (Right ctx') actual
+  where
+    actual = case runTypeCheck e t ctx of
+      Left err -> Left err
+      Right (ctx'',_,_) -> Right ctx''
 
 --tSynthSimplify :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
 --tSynthSimplify ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (simplify <$> runTypeSynth e ctx)
@@ -398,14 +415,19 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthErr emptyContext ("f" \. ("x" \. var "f" \$ (var "x" \$ var "x")) \$ ("x" \. var "f" \$ (var "x" \$ var "x"))) (OccursError (EName "a$5$14") (evar "a$5$14" \-> evar "a$5$13"))
   -- apply non-function
   , tSynthErr emptyContext (unit \$ unit) (Mismatch (evar "a" \-> evar "b") one)
-  , teq "forall shadowing regression test" (Right (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")) )  (runTypeCheck (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")))
-  , teq "forall shadowing regression test" (Right (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a") )  (runTypeCheck (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a"))
+  -- forall shadowing regression tests
+  , tCheck (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a")) (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a"))
+  , tCheck (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a") (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a")
   , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" one unit (var "x")) (var "x")) one
   , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" tint (int 50) unit) (var "x")) one
   -- TODO debug. should be the other way around. Not even a shadowing problem.
   , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint unit (var "x")) (var "x")) (Mismatch one tint)
   -- TODO debug. should be the other way around. Not even a shadowing problem.
   , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint (int 100) (var "x")) (var "x")) (Mismatch tint one)
+  -- shadowing
+  , tSynthSimple emptyContext (elet "x" unit (elet "x" (int 1) (var "x"))) tint
+  -- universal scoping an referencing
+  , tSynthSimple emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") (lamAnnot "x" (uvar "a") (var "x")) (var "id" \$ unit)) one
   ]
 
 tests :: Test
