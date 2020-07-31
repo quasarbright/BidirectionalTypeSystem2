@@ -197,7 +197,7 @@ tSubtypePassInst ctx a b ctx' = teq (show a++" <: "++show b) (Right ctx') actual
   where
     actual = case runSubtype a b ctx of
       Left err -> Left err
-      Right (ctx'', _) -> Right ctx''
+      Right s -> Right (stateContext s)
 
 tSubtypeError :: (Eq a, Show a) => Type a -> Type a -> TypeError a -> Test
 tSubtypeError = tSubtypeErrorInst subtypeCtx
@@ -330,7 +330,7 @@ tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) actual
   where
     actual = case runTypeSynth e ctx of
       Left err -> Left err
-      Right (t', (ctx'',_)) -> Right (t',ctx'')
+      Right (t', s) -> Right (t',stateContext s)
 
 -- | like tSynth, except it simplifies the actual type and ignores the output context
 tSynthSimple :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Test
@@ -348,7 +348,7 @@ tCheck ctx e t ctx' = teq (show e++" <= "++show t) (Right ctx') actual
   where
     actual = case runTypeCheck e t ctx of
       Left err -> Left err
-      Right (ctx'',_) -> Right ctx''
+      Right s -> Right (stateContext s)
 
 --tSynthSimplify :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
 --tSynthSimplify ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (simplify <$> runTypeSynth e ctx)
@@ -407,8 +407,6 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
   -- different types for branches of if
   -- TODO make it so it mismatches with the universal type. When you instantiate a scheme, catch a left if that's possible
-  -- TODO investigate large error location
-  -- TODO test error locations in general
   , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch (evar "a$33" \-> one) one)
   -- successful if
   , tSynth emptyContext (if_ \$ true \$ unit \$ unit) one (emptyContext |> addESol "a$8" one)
@@ -443,6 +441,7 @@ tests = TestList
 main :: IO Counts
 main = runTestTT tests
 
+-- TODO test error locations
 -- TODO disallow variable shadowing? or test it to see if it can cause problems
 -- TODO test the forall shadowing more. You are allowing non-well-formed contexts, but it would be unreasonable to
 --   expect the user to make unique variables for all of their universal types. Just make sure it can't screw up.
