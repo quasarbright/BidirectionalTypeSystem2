@@ -189,7 +189,7 @@ EVar name _ \<: EVar name' _
 UVar name tag \<: UVar name' tag' = do
   assertTypeWF (UVar name tag)
   assertTypeWF (UVar name' tag')
-  unless (name == name') (mismatch (UVar name tag) (UVar name' tag'))
+  unless (name == name') (mismatch (UVar name' tag') (UVar name tag))
 -- Unit
 One{} \<: One{} = return ()
 TInt{} \<: TInt{} = return ()
@@ -226,10 +226,10 @@ t \<: EVar name _ = do
   occursCheck (EName name) t
   instantiateR t name
 -- These need to be last so they don't cover the scheme cases
-a@UVar{} \<: b = mismatch a b
-a@One{} \<: b = mismatch a b
-a@TInt{} \<: b = mismatch a b
-a@TyArr{} \<: b = mismatch a b
+a@UVar{} \<: b = mismatch b a
+a@One{} \<: b = mismatch b a
+a@TInt{} \<: b = mismatch b a
+a@TyArr{} \<: b = mismatch b a
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
 evalSubtype :: Type a -> Type a -> Context a -> TCMonad a ()
@@ -480,5 +480,5 @@ _typeSynthApp (EVar eName tag) x = do
   let retType = EVar retName tag
   typeCheck x argType
   return retType
--- tried to apply non-function type. Mismatch
+-- tried to apply non-function type
 _typeSynthApp t _ = throw $ AppliedNonFunction t

@@ -211,7 +211,7 @@ tSubtypeErrorInst ctx a b err = teq (show a++" <: "++show b) (Left err) actual
       Right r -> Right r
 
 tSubtypeMismatch :: (Eq a, Show a) => Type a -> Type a -> Test
-tSubtypeMismatch a b = tSubtypeError a b (Mismatch a b)
+tSubtypeMismatch a b = tSubtypeError a b (Mismatch b a)
 
 subtypeTests :: Test
 subtypeTests = TestLabel "subtype tests" $ TestList
@@ -231,11 +231,11 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypeMismatch (uvar "a") (uvar "q")
   , tSubtypeMismatch (uvar "a") (one \-> one)
   , tSubtypeMismatch (one \-> one) (uvar "a")
-  , tSubtypeError (tint \-> tint) (one \-> one) (Mismatch one tint)
-  , tSubtypeError (one \-> one) (tint \-> tint) (Mismatch tint one)
-  , tSubtypeError (one \-> one) (uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
-  , tSubtypeError (uvar "a" \-> uvar "a") (one \-> one) (Mismatch one (uvar "a"))
-  , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch (uvar "c") one)
+  , tSubtypeError (tint \-> tint) (one \-> one) (Mismatch tint one)
+  , tSubtypeError (one \-> one) (tint \-> tint) (Mismatch one tint)
+  , tSubtypeError (one \-> one) (uvar "a" \-> uvar "a") (Mismatch one (uvar "a"))
+  , tSubtypeError (uvar "a" \-> uvar "a") (one \-> one) (Mismatch (uvar "a") one)
+  , tSubtypeError (one \-> one) ("c" \/. uvar "c" \-> uvar "c") (Mismatch one (uvar "c"))
   , tSubtypeError (evar "b") (evar "b" \-> one) (OccursError (EName "b") (evar "b" \-> one))
   , tSubtypeError (evar "b" \-> one) (evar "b") (OccursError (EName "b") (evar "b" \-> one))
   -- instantiation
@@ -304,8 +304,8 @@ subtypeTests = TestLabel "subtype tests" $ TestList
     in
     tSubtypePassInst instSubtypeCtx ("a" \/. uvar "a" \-> uvar "a") (evar "y") expectedCtx
 
-  , tSubtypeErrorInst instSubtypeCtx (one \-> one) ("a" \/. uvar "a" \-> uvar "a") (Mismatch (uvar "a") one)
-  , tSubtypeErrorInst instSubtypeCtx (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (Mismatch (uvar "a") one)
+  , tSubtypeErrorInst instSubtypeCtx (one \-> one) ("a" \/. uvar "a" \-> uvar "a") (Mismatch one (uvar "a"))
+  , tSubtypeErrorInst instSubtypeCtx (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (Mismatch one (uvar "a"))
   , tpass
   ]
 
@@ -404,10 +404,10 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext (idAppAnnot \$ id_ \$ id_ \$ unit) one
   -- use let-annotated polymorphic identity function
   , tSynthSimple emptyContext idAppLetWithUse one
-  , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch one (evar "a$20" \-> evar "b$22"))
+  , tSynthErr emptyContext (idApp \$ id_ \$ unit) (Mismatch (evar "a$20" \-> evar "b$22") one)
   -- different types for branches of if
   -- TODO make it so it mismatches with the universal type. When you instantiate a scheme, catch a left if that's possible
-  , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch (evar "a$33" \-> one) one)
+  , tSynthErr emptyContext (if_ \$ true \$ unit \$ ("x" \. unit \:: "a" \/. uvar "a" \-> one )) (Mismatch one (evar "a$33" \-> one))
   -- successful if
   , tSynth emptyContext (if_ \$ true \$ unit \$ unit) one (emptyContext |> addESol "a$8" one)
   -- \x.x x infinite type
@@ -421,10 +421,8 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tCheck (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a") (var "id" \:: "a" \/. uvar "a" \-> uvar "a") ("a" \/. uvar "a" \-> uvar "a") (emptyContext |> addVarAnnot "id" ("a" \/. uvar "a" \-> uvar "a") |> addUDecl "a")
   , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" one unit (var "x")) (var "x")) one
   , tSynthSimple emptyContext (letAnnot "x" one (letAnnot "x" tint (int 50) unit) (var "x")) one
-  -- TODO debug. should be the other way around. Not even a shadowing problem.
-  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint unit (var "x")) (var "x")) (Mismatch one tint)
-  -- TODO debug. should be the other way around. Not even a shadowing problem.
-  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint (int 100) (var "x")) (var "x")) (Mismatch tint one)
+  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint unit (var "x")) (var "x")) (Mismatch tint one)
+  , tSynthErr emptyContext (letAnnot "x" one (letAnnot "x" tint (int 100) (var "x")) (var "x")) (Mismatch one tint)
   -- shadowing
   , tSynthSimple emptyContext (elet "x" unit (elet "x" (int 1) (var "x"))) tint
   -- universal scoping an referencing
@@ -440,8 +438,7 @@ tests = TestList
 
 main :: IO Counts
 main = runTestTT tests
-
 -- TODO test error locations
--- TODO disallow variable shadowing? or test it to see if it can cause problems
 -- TODO test the forall shadowing more. You are allowing non-well-formed contexts, but it would be unreasonable to
 --   expect the user to make unique variables for all of their universal types. Just make sure it can't screw up.
+-- TODO test more type errors
