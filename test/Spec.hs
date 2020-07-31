@@ -197,7 +197,7 @@ tSubtypePassInst ctx a b ctx' = teq (show a++" <: "++show b) (Right ctx') actual
   where
     actual = case runSubtype a b ctx of
       Left err -> Left err
-      Right (ctx'', _, _) -> Right ctx''
+      Right (ctx'', _) -> Right ctx''
 
 tSubtypeError :: (Eq a, Show a) => Type a -> Type a -> TypeError a -> Test
 tSubtypeError = tSubtypeErrorInst subtypeCtx
@@ -207,7 +207,7 @@ tSubtypeErrorInst :: (Eq a, Show a) => Context a -> Type a -> Type a -> TypeErro
 tSubtypeErrorInst ctx a b err = teq (show a++" <: "++show b) (Left err) actual
   where
     actual = case runSubtype a b ctx of
-      Left (err, _, _) -> Left err
+      Left (err, _) -> Left err
       Right r -> Right r
 
 tSubtypeMismatch :: (Eq a, Show a) => Type a -> Type a -> Test
@@ -330,7 +330,7 @@ tSynth ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) actual
   where
     actual = case runTypeSynth e ctx of
       Left err -> Left err
-      Right (t', (ctx'',_,_)) -> Right (t',ctx'')
+      Right (t', (ctx'',_)) -> Right (t',ctx'')
 
 -- | like tSynth, except it simplifies the actual type and ignores the output context
 tSynthSimple :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Test
@@ -340,7 +340,7 @@ tSynthErr :: (Eq a, Show a) => Context a -> Expr a -> TypeError a -> Test
 tSynthErr ctx e err = teq (show e++" =/> ERROR: "++show err) (Left err) actual
   where
     actual = case runTypeSynth e ctx of
-      Left (err,_,_) -> Left err
+      Left (err,_) -> Left err
       Right r -> Right r
 
 tCheck :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
@@ -348,7 +348,7 @@ tCheck ctx e t ctx' = teq (show e++" <= "++show t) (Right ctx') actual
   where
     actual = case runTypeCheck e t ctx of
       Left err -> Left err
-      Right (ctx'',_,_) -> Right ctx''
+      Right (ctx'',_) -> Right ctx''
 
 --tSynthSimplify :: (Eq a, Show a) => Context a -> Expr a -> Type a -> Context a -> Test
 --tSynthSimplify ctx e t ctx' = teq (show e++" => "++show t) (Right (t, ctx')) (simplify <$> runTypeSynth e ctx)

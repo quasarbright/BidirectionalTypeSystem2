@@ -19,10 +19,11 @@ data TypeError a = TypeWFError (ContextWFError a)
 
 -- TODO add a current location to the state for error location, and maybe exprs/reasons
 
-type TCState a = (Context a, Maybe (Expr a), Maybe a)
+-- | State for the type checker. Contains the type context, and the current expression being typed
+type TCState a = (Context a, Maybe (Expr a))
 
 -- | Monad stack for type checking. Holds a context as state and operates on Either type errors or b's
-type TypeChecker a b = StateT (TCState a) (Either (TypeError a, Maybe (Expr a), Maybe a)) b
+type TypeChecker a b = StateT (TCState a) (Either (TypeError a, Maybe (Expr a))) b
 
 -- | Initial context for type checking. Contains builtins and their types.
 initialContext :: Context a
@@ -35,8 +36,8 @@ initialContext = emptyContext
 -- | utility for throwing type errors in a @TypeChecker@ do block
 throw :: TypeError a -> TypeChecker a b
 throw err = do
-  (_,mExpr, mTag) <- get
-  lift (Left (err, mExpr, mTag))
+  (_,mExpr) <- get
+  lift (Left (err, mExpr))
 
 -- | throw a mismatch error with the two types simplified
 mismatch :: Type a -> Type a -> TypeChecker a b
@@ -79,31 +80,29 @@ assertCtxHasItem item = do
 -- | get the context of the type checker
 getContext :: TypeChecker a (Context a)
 getContext = do
-  (ctx, _, _) <- get
+  (ctx, _) <- get
   return ctx
 
 -- | get the current expression being type checked
 getCurrentExpr :: TypeChecker a (Maybe (Expr a))
 getCurrentExpr = do
-  (_,mExpr,_) <- get
+  (_,mExpr) <- get
   return mExpr
-
--- | get the current tag involved in type checking (could be a source location, for example)
--- Usually just the tag of the current expr.
-getCurrentTag :: TypeChecker a (Maybe a)
-getCurrentTag = do
-  (_,_,mTag) <- get
-  return mTag
 
 -- | set the context of the type checker
 putContext :: Context a -> TypeChecker a ()
-putContext ctx' = do
-  (_, mExpr, mTag) <- get
-  put (ctx', mExpr, mTag)
+putContext ctx = do
+  (_, mExpr) <- get
+  put (ctx, mExpr)
+
+putCurrentExpr :: Expr a -> TypeChecker a ()
+putCurrentExpr e = do
+  (ctx,_) <- get
+  put (ctx,Just e)
 
 -- | modify the context of the type checker
 modifyContextTC :: (Context a -> Context a) -> TypeChecker a ()
-modifyContextTC f = modify $ \(ctx, mExpr, mTag) -> (f ctx, mExpr, mTag)
+modifyContextTC f = modify $ \(ctx, mExpr) -> (f ctx, mExpr)
 
 simplify :: Type a -> TypeChecker a (Type a)
 simplify t = do
@@ -167,12 +166,12 @@ a@TInt{} <: b = mismatch a b
 a@TyArr{} <: b = mismatch a b
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
-evalSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a), Maybe a) ()
-evalSubtype a b ctx = evalStateT (a <: b) (ctx, Nothing, Just $getTag a)
+evalSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) ()
+evalSubtype a b ctx = evalStateT (a <: b) (ctx, Nothing)
 
 -- | run the subtype assertion with the given initial context, returning the final context
-runSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a), Maybe a) (TCState a)
-runSubtype a b ctx  = snd <$> runStateT (a <: b) (ctx, Nothing, Just $ getTag a)
+runSubtype :: Type a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) (TCState a)
+runSubtype a b ctx  = snd <$> runStateT (a <: b) (ctx, Nothing)
 
 -- | Instantiate the specified existential such that a? <: A (subtype).
 -- May modify context
@@ -287,8 +286,8 @@ typeCheck e expectedType = do
   synthesizedType' <: expectedType'
 
 -- | Type check with the given context
-runTypeCheck :: Expr a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a), Maybe a) (TCState a)
-runTypeCheck e t ctx = snd <$> runStateT (typeCheck e t) (ctx, Just e, Just $ getTag e)
+runTypeCheck :: Expr a -> Type a -> Context a -> Either (TypeError a, Maybe (Expr a)) (TCState a)
+runTypeCheck e t ctx = snd <$> runStateT (typeCheck e t) (ctx, Just e)
 
 -- | Synthesize a type for the given expression
 typeSynth :: Expr a -> TypeChecker a (Type a)
@@ -361,12 +360,12 @@ typeSynthLetHelp x tX body = do
   return tBody
 
 -- | Run type synthesis under the given context
-runTypeSynth :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a), Maybe a) (Type a, TCState a)
-runTypeSynth e ctx = runStateT (typeSynth e) (ctx, Just e, Just $ getTag e)
+runTypeSynth :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a)) (Type a, TCState a)
+runTypeSynth e ctx = runStateT (typeSynth e) (ctx, Just e)
 
 -- | Run type synthesis under the given context and simplify the result type
-runTypeSynthSimplify :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a), Maybe a) (Type a, TCState a)
-runTypeSynthSimplify e ctx = runStateT res (ctx, Just e, Just $ getTag e)
+runTypeSynthSimplify :: Expr a -> Context a -> Either (TypeError a, Maybe (Expr a)) (Type a, TCState a)
+runTypeSynthSimplify e ctx = runStateT res (ctx, Just e)
   where
     res = do
       t <- typeSynth e
