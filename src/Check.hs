@@ -8,7 +8,6 @@ import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
 
--- TODO add location, maybe exprs/reasons
 -- | Type error.
 -- A TCFailure HAS A TypeError
 data TypeError a = TypeWFError (ContextWFError a)
@@ -347,6 +346,7 @@ _typeCheck e (TyScheme uName body _) = do
   typeCheck e body
   modifyContextTC $ removeItemsAfterUDecl uName
 -- ->I <=
+-- TODO get rid of these cases. You'll need to change some tests, but everything will still work
 _typeCheck (Lambda name body _) (TyArr argType retType _) = do
   modifyContextTC $ addVarAnnot name argType
   typeCheck body retType
@@ -380,6 +380,7 @@ _typeSynth (Var name _) = do
     _ -> error "unbound variable in type synthesis"
 -- Anno
 _typeSynth (Annot e t _) = do
+  assertTypeWF t
   typeCheck e t
   return t
 -- 1I =>
@@ -398,6 +399,7 @@ _typeSynth (Lambda name body tag) = do
 -- ->AnnotI =>
 -- instead of \x.e => a? -> b?, it's \x::A.e => A -> b?
 _typeSynth (LambdaAnnot name t body tag) = do
+  assertTypeWF t
   (retName, ctx') <- getFreshNameFrom "b" <$> getContext
   putContext ctx'
   let argType = t
@@ -409,6 +411,7 @@ _typeSynth (Let x e body _) = do
   typeSynthLetHelp x tX body
 -- letAnnot =>
 _typeSynth (LetAnnot x tX e body _) = do
+  assertTypeWF tX
   typeCheck e tX
   typeSynthLetHelp x tX body
 -- ->E =>
