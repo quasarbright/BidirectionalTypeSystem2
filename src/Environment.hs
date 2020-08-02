@@ -272,7 +272,6 @@ contextAsSubstitution :: Context a -> Type a -> Type a
 contextAsSubstitution ctx t =
   let recurse = contextAsSubstitution ctx in
   case t of
-    One{} -> t
     TInt{} -> t
     UVar{} -> t -- assumes well-formedness
     EVar name _ ->
@@ -306,7 +305,6 @@ checkTypeWellFormedness ctx t =
     ePredicate name item = itemHasName (EName name) item
   in
   case t of
-    One{} -> Right ()
     TInt{} -> Right ()
     UVar name tag
       | containsItem (UDecl name) ctx -> Right ()

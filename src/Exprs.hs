@@ -6,8 +6,6 @@ import Types
 import Data.List
 
 data Expr a = Var String a
-            -- ()
-            | Unit a
             -- 12
             | EInt Int a
             -- \x.e
@@ -30,7 +28,6 @@ instance Show (Expr a) where
     let p' = getPrecedence e in
     case e of
       Var name _ -> shows (VName name)
-      Unit{} -> showString "()"
       EInt n _ -> shows n
       Lambda x body _ -> showParen (p > p') $ showString "\\" . shows (VName x) . showString "." . showsPrec p' body
       LambdaAnnot x t body _ -> showParen (p > p') $ showString "\\(" . shows (VName x) . showString " :: " . shows t . showString ")." . showsPrec p' body
@@ -43,8 +40,6 @@ instance Show (Expr a) where
 instance Eq (Expr a) where
   Var name _ == Var name' _ = name == name'
   Var{} == _ = False
-  Unit{} == Unit{} = True
-  Unit{} == _ = False
   EInt n _ == EInt n' _ = n == n'
   EInt{} == _ = False
   Lambda name body _ == Lambda name' body' _ = name == name' && body == body'
@@ -64,7 +59,6 @@ instance Eq (Expr a) where
 
 instance Functor Expr where
   fmap f (Var name a) = Var name (f a)
-  fmap f (Unit a) = Unit (f a)
   fmap f (EInt n a) = EInt n (f a)
   fmap f (Lambda name e a) = Lambda name (fmap f e) (f a)
   fmap f (LambdaAnnot name t e a) = LambdaAnnot name (fmap f t) (fmap f e) (f a)
@@ -75,7 +69,6 @@ instance Functor Expr where
   fmap f (Annot e t a) = Annot (fmap f e) (fmap f t) (f a)
 
 instance Tagged Expr where
-  getTag (Unit a) = a
   getTag (EInt _ a) = a
   getTag (Var _ a) = a
   getTag (Lambda _ _ a) = a
@@ -86,7 +79,6 @@ instance Tagged Expr where
   getTag (Tup _ a) = a
   getTag (Annot _ _ a) = a
 
-  setTag a (Unit _) = Unit a
   setTag a (EInt n _) = EInt n a
   setTag a (Var name _) = Var name a
   setTag a (Lambda name body _) = Lambda name body a
@@ -99,7 +91,6 @@ instance Tagged Expr where
 
 instance ExprLike Expr where
   getFreeVars (Var name _) = Set.singleton (VName name)
-  getFreeVars Unit{} = Set.empty
   getFreeVars EInt{} = Set.empty
   getFreeVars (Lambda name body _) = Set.delete (VName name) (getFreeVars body)
   getFreeVars (LambdaAnnot name _ body _) = Set.delete (VName name) (getFreeVars body)
@@ -110,7 +101,6 @@ instance ExprLike Expr where
   getFreeVars (Annot e _ _) = getFreeVars e
 
   getPrecedence Var{} = 100
-  getPrecedence Unit{} = 100
   getPrecedence EInt{} = 100
   getPrecedence Lambda{} = 3
   getPrecedence LambdaAnnot{} = 3
@@ -128,7 +118,7 @@ var s = Var s ()
 
 -- | make a unit value
 unit :: Expr ()
-unit = Unit ()
+unit = tup []
 
 -- | make an integer value
 int :: Int -> Expr ()

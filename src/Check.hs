@@ -190,8 +190,7 @@ UVar name tag \<: UVar name' tag' = do
   assertTypeWF (UVar name tag)
   assertTypeWF (UVar name' tag')
   unless (name == name') (mismatch (UVar name' tag') (UVar name tag))
--- Unit
-One{} \<: One{} = return ()
+-- Int
 TInt{} \<: TInt{} = return ()
 -- ->
 TyArr arg ret _ \<: TyArr arg' ret' _ = do
@@ -231,7 +230,6 @@ t \<: EVar name _ = do
   instantiateR t name
 -- These need to be last so they don't cover the scheme cases
 a@UVar{} \<: b = mismatch b a
-a@One{} \<: b = mismatch b a
 a@TInt{} \<: b = mismatch b a
 a@TyArr{} \<: b = mismatch b a
 a@TyTup{} \<: b = mismatch b a
@@ -361,10 +359,6 @@ typeCheck e t = localReasonExpr (Checking e t) e (_typeCheck e t)
 
 -- | Check that the expression is a subtype of the given type
 _typeCheck :: Expr a -> Type a -> TypeChecker a ()
--- 1I<=
-_typeCheck Unit{} One{} = return ()
--- IntI<=
-_typeCheck EInt{} TInt{} = return ()
 -- \/I <=
 _typeCheck e (TyScheme uName body _) = do
   modifyContextTC $ addUDecl uName
@@ -407,8 +401,6 @@ _typeSynth (Annot e t _) = do
   assertTypeWF t
   typeCheck e t
   return t
--- 1I =>
-_typeSynth (Unit tag) = return $ One tag
 -- IntI =>
 _typeSynth (EInt _ tag) = return $ TInt tag
 -- ->I =>
