@@ -3,6 +3,7 @@ module Exprs where
 import qualified Data.Set as Set
 import Common
 import Types
+import Data.List
 
 data Expr a = Var String a
             -- ()
@@ -19,6 +20,8 @@ data Expr a = Var String a
             | LetAnnot String (Type a) (Expr a) (Expr a) a
             -- e e
             | App (Expr a) (Expr a) a
+            -- (e1, ..., en)
+            | Tup [Expr a] a
             -- e::A
             | Annot (Expr a) (Type a) a
 
@@ -34,6 +37,7 @@ instance Show (Expr a) where
       Let x value body _ -> showString "let " . showString x . showString " = " . shows value . showString " in " . shows body
       LetAnnot x t value body _ -> showString "let (" . showString x . showString " :: " . shows t . showString ") = " . shows value . showString " in " . shows body
       App f x _ -> showParen (p > p') $ showsPrec p' f . showString " " . showsPrec (p'+1) x
+      Tup es _ -> showParen True $ showString . intercalate ", " $ show <$> es
       Annot e' t _ -> showParen (p > p') $ showsPrec p' e' . showString " :: " . showsPrec (p'+1) t
 
 instance Eq (Expr a) where
@@ -53,6 +57,8 @@ instance Eq (Expr a) where
   LetAnnot{} == _ = False
   App f x _ == App f' x' _ = f == f' && x == x'
   App{} == _ = False
+  Tup es _ == Tup es' _ = es == es'
+  Tup{} == _ = False
   Annot e t _ == Annot e' t' _ = e == e' && t == t'
   Annot{} == _ = False
 
@@ -65,6 +71,7 @@ instance Functor Expr where
   fmap f (Let x e body a) = Let x (fmap f e) (fmap f body) (f a)
   fmap f (LetAnnot x t e body a) = LetAnnot x (fmap f t) (fmap f e) (fmap f body) (f a)
   fmap f (App g x a) = App (fmap f g) (fmap f x) (f a)
+  fmap f (Tup es a) = Tup (fmap f <$> es) (f a)
   fmap f (Annot e t a) = Annot (fmap f e) (fmap f t) (f a)
 
 instance Tagged Expr where
@@ -76,6 +83,7 @@ instance Tagged Expr where
   getTag (Let _ _ _ a) = a
   getTag (LetAnnot _ _ _ _ a) = a
   getTag (App _ _ a) = a
+  getTag (Tup _ a) = a
   getTag (Annot _ _ a) = a
 
   setTag a (Unit _) = Unit a
@@ -86,6 +94,7 @@ instance Tagged Expr where
   setTag a (Let x e body _) = Let x e body a
   setTag a (LetAnnot x t e body _) = LetAnnot x t e body a
   setTag a (App f x _) = App f x a
+  setTag a (Tup es _) = Tup es a
   setTag a (Annot e t _) = Annot e t a
 
 instance ExprLike Expr where
@@ -97,6 +106,7 @@ instance ExprLike Expr where
   getFreeVars (Let x e body _) = Set.union (getFreeVars e) (Set.delete (VName x) $ getFreeVars body)
   getFreeVars (LetAnnot x _ e body _) = Set.union (getFreeVars e) (Set.delete (VName x) $ getFreeVars body)
   getFreeVars (App f x _) = Set.union (getFreeVars f) (getFreeVars x)
+  getFreeVars (Tup es _) = Set.unions (getFreeVars <$> es)
   getFreeVars (Annot e _ _) = getFreeVars e
 
   getPrecedence Var{} = 100
@@ -107,6 +117,7 @@ instance ExprLike Expr where
   getPrecedence Let{} = 3
   getPrecedence LetAnnot{} = 3
   getPrecedence App{} = 4
+  getPrecedence Tup{} = 100
   getPrecedence Annot{} = 1
 
 -- combinators for easily building expressions
@@ -144,6 +155,10 @@ letAnnot x t e body = LetAnnot x t e body ()
 infixl 4 \$
 (\$) :: Expr () -> Expr () -> Expr ()
 f \$ x = App f x ()
+
+-- | Tuple expression combinator
+tup :: [Expr ()] -> Expr ()
+tup es = Tup es ()
 
 -- | annot value combinator
 infixl 1 \::

@@ -443,6 +443,10 @@ _typeSynth (App f x _) = do
   fType <- typeSynth f
   fType' <- simplify fType
   typeSynthApp fType' x
+-- TupI
+_typeSynth (Tup es tag) = do
+    tys <- sequence (typeSynth <$> es)
+    return $ TyTup tys tag
 
 -- | common bit between lambda and lambda annot synthesis cases with free variables extracted as parameters.
 typeSynthLambdaHelp :: String -> String -> Type a -> Type a -> Expr a -> a -> TypeChecker a (Type a)

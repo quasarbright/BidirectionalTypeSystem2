@@ -435,6 +435,10 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext (elet "x" unit (elet "x" (int 1) (var "x"))) tint
   -- universal scoping an referencing
   , tSynthSimple emptyContext (letAnnot "id" ("a" \/. uvar "a" \-> uvar "a") (lamAnnot "x" (uvar "a") (var "x")) (var "id" \$ unit)) one
+  -- tuples
+  , tSynthSimple emptyContext (tup [int 1, int 2]) (ttup [tint, tint])
+  , tCheck emptyContext (lamAnnot "x" (uvar "a") (tup [var "x", var "x"])) ("a" \/. (uvar "a" \-> ttup [uvar "a", uvar "a"])) emptyContext
+  , tSynthSimple emptyContext (tup [id_, int 1]) (ttup ["a" \/. uvar "a" \-> uvar "a", tint])
   ]
 
 tests :: Test
