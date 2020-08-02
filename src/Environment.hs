@@ -251,6 +251,19 @@ instArrReplacement name tag ctx =
   let finalCtx = replaceItemWithItems target replacements ctx' in
   (argName, retName, finalCtx)
 
+-- | Used in the InstLTup and InstRTup instantiation rules from the paper:
+-- CTX[a?] -> CTX[an, ..., a1, a=(a1, ..., an)]
+-- Performs that replacement by generating fresh existentials 
+-- and returns the names of the tuple subtype existentials.
+-- Pass in the existential name ("a") and a tag for the created types.
+instTupReplacement :: String -> Int -> a -> Context a -> ([String], Context a)
+instTupReplacement name n tag ctx =
+  let  ~(eNames, ctx') = getFreshNamesFrom name n ctx in
+  let target = EDecl name in
+  let replacements = reverse (EDecl <$> eNames) ++ [ESol name (TyTup [EVar eName tag | eName <- eNames] tag)] in 
+  let finalCtx = replaceItemWithItems target replacements ctx' in
+  (eNames, finalCtx)
+
 
 -- context as a type substitution
 
@@ -269,6 +282,7 @@ contextAsSubstitution ctx t =
         mi -> error ("unexpected item: "++show mi)
     TyScheme name' body tag -> TyScheme name' (recurse body) tag
     TyArr arg ret tag -> TyArr (recurse arg) (recurse ret) tag
+    TyTup tys tag -> TyTup (recurse <$> tys) tag
 
 
 -- well-formedness
@@ -302,6 +316,7 @@ checkTypeWellFormedness ctx t =
       | otherwise -> Left (UnboundEVar name tag)
     TyScheme name body _ -> checkTypeWellFormedness (addUDecl name ctx) body
     TyArr arg ret _ -> sequence_ (checkTypeWellFormedness ctx <$> [arg, ret])
+    TyTup tys _ -> sequence_ (checkTypeWellFormedness ctx <$> tys)
 
 -- | check the well-formedness of a context
 checkContextWellFormedness :: Context a -> Either (ContextWFError a) ()

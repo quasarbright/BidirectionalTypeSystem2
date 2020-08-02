@@ -2,6 +2,7 @@ module Types where
 
 import Common
 import qualified Data.Set as Set
+import Data.List
 
 data Type a = One a
           | TInt a
@@ -9,6 +10,7 @@ data Type a = One a
           | EVar String a
           | TyScheme String (Type a) a
           | TyArr (Type a) (Type a) a
+          | TyTup [Type a] a
 
 instance Show (Type a) where
   showsPrec p t =
@@ -20,6 +22,7 @@ instance Show (Type a) where
         EVar name _ -> shows (EName name)
         TyScheme name body _ -> showParen (p > p') $ showString "\\/" . shows (UName name) . showString "." . showsPrec p' body
         TyArr arg ret _ -> showParen (p > p') $ showsPrec (p'+1) arg . showString " -> " . showsPrec p' ret
+        TyTup tys _ -> showParen True . showString . intercalate ", " $ show <$> tys
 
 instance Eq (Type a) where
   One{} == One{} = True
@@ -34,6 +37,8 @@ instance Eq (Type a) where
   TyScheme{} == _ = False
   TyArr arg ret _ == TyArr arg' ret' _ = arg == arg' && ret == ret'
   TyArr{} == _ = False
+  TyTup tys _ == TyTup tys' _ = tys == tys'
+  TyTup{} == _ = False
 
 instance Functor Type where
   fmap f (One a) = One (f a)
@@ -42,6 +47,7 @@ instance Functor Type where
   fmap f (EVar name a) = EVar name (f a)
   fmap f (TyScheme name t a) = TyScheme name (fmap f t) (f a)
   fmap f (TyArr inTy retTy a) = TyArr (fmap f inTy) (fmap f retTy) (f a)
+  fmap f (TyTup tys a) = TyTup (fmap f <$> tys) (f a)
 
 instance Tagged Type where
   getTag (One a) = a
@@ -50,6 +56,7 @@ instance Tagged Type where
   getTag (EVar _ a) = a
   getTag (TyScheme _ _ a) = a
   getTag (TyArr _ _ a) = a
+  getTag (TyTup _ a) = a
 
   setTag a (One _) = One a
   setTag a (TInt _) = TInt a
@@ -57,6 +64,7 @@ instance Tagged Type where
   setTag a (EVar name _) = EVar name a
   setTag a (TyScheme name t _) = TyScheme name t a
   setTag a (TyArr inTy retTy _) = TyArr inTy retTy a
+  setTag a (TyTup tys _) = TyTup tys a
 
 instance ExprLike Type where
   getFreeVars One{} = Set.empty
@@ -65,6 +73,7 @@ instance ExprLike Type where
   getFreeVars (EVar name _) = Set.singleton (EName name)
   getFreeVars (TyScheme name t _) = Set.delete (UName name) (getFreeVars t)
   getFreeVars (TyArr i r _) = Set.union (getFreeVars i) (getFreeVars r)
+  getFreeVars (TyTup tys _) = Set.unions (getFreeVars <$> tys)
 
   getPrecedence One{} = 100
   getPrecedence TInt{} = 100
@@ -72,6 +81,7 @@ instance ExprLike Type where
   getPrecedence EVar{} = 100
   getPrecedence TyScheme{} = 2
   getPrecedence TyArr{} = 3
+  getPrecedence TyTup{} = 100
 
 
 -- utility functions for types
@@ -86,6 +96,7 @@ isMonoType t = case t of
   EVar{} -> True
   TyScheme{} -> False
   TyArr arg ret _ -> all isMonoType [arg, ret]
+  TyTup tys _ -> all isMonoType tys
 
 -- | @substituteTypeVariable name value t@ substitutes all references to the given name with the type @value@ in the type @t@
 substituteTypeVariable :: Name -> Type a -> Type a -> Type a
@@ -104,6 +115,7 @@ substituteTypeVariable name value t =
       | UName name' == name -> t -- shouldn't even be possible, TODO maybe throw an error?
       | otherwise -> TyScheme name' (recurse body) a
     TyArr arg ret a -> TyArr (recurse arg) (recurse ret) a
+    TyTup tys a -> TyTup (recurse <$> tys) a
 
 
 -- combinators for constructing types
@@ -134,6 +146,10 @@ name \/. t = TyScheme name t ()
 infixr 3 \->
 (\->) :: Type () -> Type () -> Type ()
 arg \-> ret = TyArr arg ret ()
+
+-- | combinator for constructing tuple types
+ttup :: [Type ()] -> Type ()
+ttup tys = TyTup tys ()
 
 -- example: the type of the identity function
 _ = "a" \/. uvar "a" \-> uvar "a"

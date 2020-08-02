@@ -8,6 +8,7 @@ import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
 
+-- TODO unify all static errors into 1 type
 -- | Type error.
 -- A TCFailure HAS A TypeError
 data TypeError a = TypeWFError (ContextWFError a)
@@ -198,6 +199,10 @@ TyArr arg ret _ \<: TyArr arg' ret' _ = do
   retSimplified <- simplify ret
   ret'Simplified <- simplify ret'
   retSimplified <: ret'Simplified
+-- Tup
+a@(TyTup tys _) \<: b@(TyTup tys' _) = do
+  unless (length tys == length tys') (mismatch b a)
+  zipWithM_ (\t1 t2 -> join $ liftM2 (<:) (simplify t1) (simplify t2)) tys tys'
 -- forall L
 TyScheme name body tag \<: t = do
   (eName, startCtx') <- getFreshNameFrom name <$> getContext
@@ -229,6 +234,7 @@ a@UVar{} \<: b = mismatch b a
 a@One{} \<: b = mismatch b a
 a@TInt{} \<: b = mismatch b a
 a@TyArr{} \<: b = mismatch b a
+a@TyTup{} \<: b = mismatch b a
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
 evalSubtype :: Type a -> Type a -> Context a -> TCMonad a ()
@@ -242,6 +248,7 @@ runSubtype a b ctx  = snd <$> runStateT (a <: b) (TCState{stateContext=ctx, stat
 instantiateL :: String -> Type a -> TypeChecker a ()
 instantiateL eName t = localReason (LeftInstantiating eName t) (_instantiateL eName t)
 
+-- TODO put a mono type guard on the last case and make a new case which throws an instantiation error
 -- | Instantiate the specified existential such that a? <: A (subtype).
 -- May modify context
 _instantiateL :: String -> Type a -> TypeChecker a ()
@@ -258,6 +265,8 @@ _instantiateL name (TyArr argType retType tag) = do
   simplifiedRetType <- simplify retType
   -- we need to return retType or less, so we need the subtype
   instantiateL retName simplifiedRetType
+-- InstLTup
+_instantiateL name (TyTup tys tag) = instantiateTup name tys tag True
 -- InstLAllR
 _instantiateL name (TyScheme uname body _) = do
   assertCtxHasEDecl name
@@ -274,6 +283,7 @@ _instantiateL name t = do
 instantiateR :: Type a -> String -> TypeChecker a ()
 instantiateR t eName = localReason (RightInstantiating t eName) (_instantiateR t eName)
 
+-- TODO put a monotype guard around last and make a new case which throws an instantiation error
 -- | Instantiate the specified existential such that A <: a? (supertype).
 -- May modify context
 _instantiateR :: Type a -> String -> TypeChecker a ()
@@ -291,6 +301,8 @@ _instantiateR (TyArr argType retType tag) name = do
   simplifiedRetType <- simplify retType
   -- we need to return retType or more, so supertype
   instantiateR simplifiedRetType retName
+-- InstRTup
+_instantiateR (TyTup tys tag) name = instantiateTup name tys tag False
 -- InstRAllL
 _instantiateR (TyScheme uName body tag) name = do
   assertCtxHasEDecl name
@@ -307,6 +319,19 @@ _instantiateR t name = do
   assertTypeWF t
   modifyContextTC $ recordESol name t
 
+-- | helper for instantiating types to sub or super types of tuple types. Boolean argument is true for left instantiation,
+-- false for right instantiation.
+instantiateTup :: String -> [Type a] -> a -> Bool -> TypeChecker a ()
+instantiateTup name tys tag isLeft = do
+  assertCtxHasEDecl name
+  (eNames, articulatedCtx) <- instTupReplacement name (length tys) tag <$> getContext
+  putContext articulatedCtx
+  zipWithM_ go eNames tys
+  where
+      go eName ty = do
+          let eType = EVar eName tag
+          ty' <- simplify ty
+          if isLeft then eType <: ty' else ty' <: eType
 
 -- | Check that the given name does not occur free in the given type. Used to detect infinite types like a = 1 -> a.
 occursCheck :: Name -> Type a -> TypeChecker a ()
@@ -354,7 +379,6 @@ _typeCheck (Lambda name body _) (TyArr argType retType _) = do
 _typeCheck (LambdaAnnot name t body tag) arr@(TyArr argType retType tag') = do
   TyArr t retType tag' <: TyArr argType retType tag'
   _typeCheck (Lambda name body tag) arr
--- TODO tuple checking here similar to ->I <=
 -- Sub
 _typeCheck e expectedType = do
   synthesizedType <- typeSynth e

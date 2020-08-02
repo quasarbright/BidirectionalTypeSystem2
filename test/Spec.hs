@@ -7,7 +7,6 @@ import Types
 import Environment
 import Check
 import Debug.Trace
-
 teq :: (Eq a, Show a) => String -> a -> a -> Test
 teq name a b = TestCase (assertEqual name a b)
 
@@ -148,6 +147,7 @@ ctxTests = TestLabel "context tests" $ TestList [
           ctx = substitutionCtx
           expected = "d" \/. (uvar "c" \-> uvar "d" \-> one \-> one)
         in teq "substitution4" expected (contextAsSubstitution ctx ("d" \/. (uvar "c" \-> uvar "d" \-> evar "a")))
+        , teq "substitutionTup" (ttup [one \-> one, one, evar "b"]) (contextAsSubstitution substitutionCtx $ ttup [evar "a", one, evar "b"])
         ,
         tContextWF "simple wf" simpleCtx (Right()),
         tTypeWF "one wf" one simpleCtx (Right()),
@@ -223,6 +223,10 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypeError (uvar "z") (uvar "z") (TypeWFError $ UnboundUVar "z" ())
   , tSubtypePass (evar "b") (evar "b")
   , tSubtypePass (evar "b" \-> one) (evar "b" \-> one)
+  , tSubtypePass (ttup [tint, tint, tint]) (ttup [tint, tint, tint])
+  , tSubtypePass (ttup [tint, tint, tint \-> tint]) (ttup [tint, tint, tint \-> tint])
+  , tSubtypeMismatch (ttup [tint, tint]) (ttup [tint, tint, tint])
+  , tSubtypeError (ttup [tint, tint]) (ttup [tint, tint \-> tint]) (Mismatch (tint \-> tint) tint)
   , tSubtypeError (evar "z") one (ContextItemNotFound (EDecl "z"))
   , tSubtypeMismatch one tint
   , tSubtypeMismatch tint one
@@ -306,6 +310,10 @@ subtypeTests = TestLabel "subtype tests" $ TestList
 
   , tSubtypeErrorInst instSubtypeCtx (one \-> one) ("a" \/. uvar "a" \-> uvar "a") (Mismatch one (uvar "a"))
   , tSubtypeErrorInst instSubtypeCtx (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (Mismatch one (uvar "a"))
+  , tSubtypeError (evar "b" \-> evar "b") (tint \-> (tint \-> tint)) (Mismatch (tint \-> tint) tint)
+  , tSubtypeError (ttup [evar "b", evar "b"]) (ttup [tint, tint \-> tint]) (Mismatch (tint \-> tint) tint)
+  , tSubtypePassInst subtypeCtx (ttup [evar "b", evar "b"]) (ttup [tint, tint]) (subtypeCtx |> recordESol "b" tint)
+  , tSubtypePassInst subtypeCtx ("g" \/. ttup [uvar "g", uvar "g"]) (ttup [tint, tint]) subtypeCtx
   , tpass
   ]
 
