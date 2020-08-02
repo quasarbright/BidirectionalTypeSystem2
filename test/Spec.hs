@@ -439,6 +439,23 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext (tup [int 1, int 2]) (ttup [tint, tint])
   , tCheck emptyContext (lamAnnot "x" (uvar "a") (tup [var "x", var "x"])) ("a" \/. (uvar "a" \-> ttup [uvar "a", uvar "a"])) emptyContext
   , tSynthSimple emptyContext (tup [id_, int 1]) (ttup ["a" \/. uvar "a" \-> uvar "a", tint])
+  -- cases
+  , tSynthSimple emptyContext (ecase (int 1) [(pint 1, unit)]) one
+  , tSynthSimple emptyContext (ecase (int 1) [(pvar "x", tup [var "x", var "x", unit])]) (ttup [tint, tint, one])
+  , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"], tup [var "y", var "x", var "x"])]) (ttup [one, tint, tint])
+  -- nested tuple pattern
+  , tSynthSimple emptyContext (ecase (tup [unit, tup[int 1, unit]]) [(ptup [pwild, ptup [pvar "x", pwild]], tup [var "x", var "x"])]) (ttup [tint, tint])
+  , tSynthSimple emptyContext (ecase (tup [unit, tup[int 1, unit]]) [(ptup [pwild `pannot` one, ptup [pvar "x" `pannot` tint, pwild] `pannot` ttup [tint, one]], tup [var "x", var "x"])]) (ttup [tint, tint])
+  -- tuple swap
+  , let e = ("pair" \. ecase (var "pair") [(ptup [pvar "x", pvar "y"], tup [var "y", var "x"])])
+    in tCheck emptyContext e ("a" \/. "b" \/. ttup [uvar "a", uvar "b"] \-> ttup [uvar "b", uvar "a"]) emptyContext
+  , tSynthErr emptyContext (ecase (int 1) [(ptup [], unit)]) (Mismatch tint one)
+  , tSynthErr emptyContext (ecase (int 1) [(ptup [pvar "x", pvar "y"], var "x")]) (Mismatch tint (ttup [evar "a$3", evar "a$4"]))
+  , tSynthErr emptyContext (ecase (tup [unit, unit]) [(pint 1, "x" \. var "x")]) (Mismatch (ttup [one, one]) tint)
+    -- pattern match shadow with different types (wf error) TODO make it an or pattern when you make or patterns
+  , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "x"], unit)]) (Mismatch one tint)
+  -- variables across different matches are independent
+  , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"], tup [var "y", var "x"]), (ptup [pvar "y", pvar "x"], tup [var "x", var "y"])]) (ttup [one, tint])
   ]
 
 tests :: Test

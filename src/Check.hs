@@ -7,7 +7,7 @@ import Types
 import Environment
 import Control.Monad.Trans.Class (lift)
 import Control.Monad
-
+import Data.Foldable(toList)
 -- TODO unify all static errors into 1 type
 -- | Type error.
 -- A TCFailure HAS A TypeError
@@ -24,6 +24,9 @@ data TypeError a = TypeWFError (ContextWFError a)
 data Reason a = Checking (Expr a) (Type a)
               | Synthesizing (Expr a)
               | ApplicationSynthesizing (Type a) (Expr a)
+              | MatchChecking (Pattern a) (Expr a) (Type a) (Type a)
+              | PatternChecking (Pattern a) (Type a)
+              | PatternSynthesizing (Pattern a)
               | Subtyping (Type a) (Type a)
               | LeftInstantiating String (Type a)
               | RightInstantiating (Type a) String
@@ -439,6 +442,15 @@ _typeSynth (App f x _) = do
 _typeSynth (Tup es tag) = do
     tys <- sequence (typeSynth <$> es)
     return $ TyTup tys tag
+-- Case
+_typeSynth (Case e ms tag) = do
+    tE <- typeSynth e
+    (eName, ctx') <- getFreshNameFrom "a" <$> getContext
+    putContext ctx'
+    let eType = EVar eName tag
+    modifyContextTC $ addEDecl eName
+    sequence_ [typeCheckMatch pat rhs tE eType | (pat, rhs) <- ms]
+    return (EVar eName tag)
 
 -- | common bit between lambda and lambda annot synthesis cases with free variables extracted as parameters.
 typeSynthLambdaHelp :: String -> String -> Type a -> Type a -> Expr a -> a -> TypeChecker a (Type a)
@@ -505,3 +517,61 @@ _typeSynthApp (EVar eName tag) x = do
   return retType
 -- tried to apply non-function type
 _typeSynthApp t _ = throw $ AppliedNonFunction t
+
+-- | wrapper for _typeCheckMatch that handles logging
+typeCheckMatch :: Pattern a -> Expr a -> Type a -> Type a -> TypeChecker a ()
+typeCheckMatch pat rhs tPat tRhs = localReason (MatchChecking pat rhs tPat tRhs) (_typeCheckMatch pat rhs tPat tRhs)
+
+-- | @_typeCheckMatch pat rhs tPat tRhs@ checks that, in a match @pat -> rhs@, @pat@ has type @tPat@ and @rhs@ has type @tRhs@
+_typeCheckMatch :: Pattern a -> Expr a -> Type a -> Type a -> TypeChecker a ()
+_typeCheckMatch pat rhs tPat tRhs = do
+    let freeVars = show <$> toList (getFreeVars pat)
+    (markerName, ctx') <- getFreshNameFrom "mark" <$> getContext
+    putContext ctx'
+    (eNames, ctx'') <- getFreshNamesFrom "a" (length freeVars) <$> getContext
+    putContext ctx''
+    let eTypes = [EVar eName (getTag pat) | eName <- eNames]
+    modifyContextTC $ addEMarker markerName
+    sequence_ $ modifyContextTC . addEDecl <$> eNames
+    zipWithM_ (\ x t -> modifyContextTC $ addVarAnnot x t) freeVars eTypes
+    typeCheckPattern pat tPat
+    typeCheck rhs tRhs
+    modifyContextTC $ removeItemsAfterEMarker markerName
+
+-- | wrapper for _typeCheckPattern that handles logging
+typeCheckPattern :: Pattern a -> Type a -> TypeChecker a ()
+typeCheckPattern p t = localReason (PatternChecking p t) (_typeCheckPattern p t)
+
+-- | check the type of a pattern
+_typeCheckPattern :: Pattern a -> Type a -> TypeChecker a ()
+_typeCheckPattern PWild{} _ = return ()
+_typeCheckPattern p (TyScheme name t _) = do
+    modifyContextTC $ addUDecl name
+    typeCheckPattern p t
+    modifyContextTC $ removeItemsAfterUDecl name
+_typeCheckPattern p expectedType = do
+    synthesizedType <- typeSynthPattern p
+    synthesizedType' <- simplify synthesizedType
+    expectedType' <- simplify expectedType
+    synthesizedType' <: expectedType'
+
+-- | wrapper for _typeSynthPattern that handles logging
+typeSynthPattern :: Pattern a -> TypeChecker a (Type a)
+typeSynthPattern p = localReason (PatternSynthesizing p) (_typeSynthPattern p)
+
+-- | synthesize the type of a pattern
+_typeSynthPattern :: Pattern a -> TypeChecker a (Type a)
+_typeSynthPattern (PVar name _) = do
+    ctx <- getContext
+    case lookupVar name ctx of
+        Just t -> return t
+        _ -> error "unbound variable in pattern type synthesis"
+_typeSynthPattern (PInt _ tag) = return $ TInt tag
+_typeSynthPattern (PTup ps tag) = do
+    tys <- sequence (typeSynthPattern <$> ps)
+    return (TyTup tys tag)
+_typeSynthPattern (PAnnot p t _) = do
+    assertTypeWF t
+    typeCheckPattern p t
+    return t
+_typeSynthPattern (PWild tag) = return (TyScheme "a" (UVar "a" tag) tag)

@@ -11,6 +11,7 @@
       <w>ctx'</w>
       <w>data.</w>
       <w>delmonaco</w>
+      <w>ecase</w>
       <w>evar</w>
       <w>existentials</w>
       <w>exprs</w>
@@ -22,7 +23,11 @@
       <w>monomorphic</w>
       <w>morphic</w>
       <w>name'</w>
+      <w>pannot</w>
       <w>prec</w>
+      <w>ptup</w>
+      <w>pvar</w>
+      <w>pwild</w>
       <w>quasarbright</w>
       <w>recursing</w>
       <w>ret'</w>
