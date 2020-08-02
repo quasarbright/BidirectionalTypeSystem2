@@ -15,6 +15,8 @@ data ContextItem a = UDecl String
                | EDecl String
                | EMarker String
                | ESol String (Type a) -- better be mono type
+               | ConAnnot String (Type a)
+               | TAnnot String (Kind a)
                 deriving(Eq)
 
 instance Show (ContextItem a) where
@@ -24,7 +26,8 @@ instance Show (ContextItem a) where
       EDecl name -> show (EName name)
       EMarker name -> "MARK: "++show (EName name)
       ESol name t -> concat [show (EName name)," = ",show t]
-
+      ConAnnot name t -> concat [show (CName name)," :: ",show t]
+      TAnnot name kind -> concat [show (DName name)," :: ", show kind]
 
 -- | an ordered context for type checking.
 -- items are chronologically backwards. The first item is the most recent.
@@ -91,6 +94,14 @@ addESol name t = addItem (ESol name t)
 addVarAnnot :: String -> Type a -> ContextModifier a
 addVarAnnot name t = addItem (VarAnnot name t)
 
+-- | add a (value) constructor annotation to the environment
+addConAnnot :: String -> Type a -> ContextModifier a
+addConAnnot name t = addItem (ConAnnot name t)
+
+-- | add a type annotation (for a type constructor)
+addTAnnot :: String -> Kind a -> ContextModifier a
+addTAnnot name kind = addItem (TAnnot name kind)
+
 
 -- observations
 
@@ -124,6 +135,8 @@ getItemName item = case item of
   EDecl name -> EName name
   EMarker name -> EName name
   ESol name _ -> EName name
+  ConAnnot name _ -> CName name
+  TAnnot name _ -> DName name
 
 -- | Retrieve the set of all names in this context, including those specified by markers.
 getAllItemNames :: Context a -> Set.Set Name
@@ -180,6 +193,22 @@ lookupVar name ctx = do
   case item of
     VarAnnot _ t -> return t
     _ -> error "found non-var annot when looking up variable's type"
+
+-- | find the type of a value constructor in the given context
+lookupCon :: String -> Context a -> Maybe (Type a)
+lookupCon name ctx = do
+    item <- findItemWithName (CName name) ctx
+    case item of
+        ConAnnot _ t -> return t
+        _ -> error "found non-con annot when looking up a constructor's type"
+
+-- | find the kind of a type constructor in the given context
+lookupType :: String -> Context a -> Maybe (Kind a)
+lookupType name ctx = do
+    item <- findItemWithName (DName name) ctx
+    case item of
+        TAnnot _ k -> return k
+        _ -> error "found non-type annot when looking up a type's kind"
 
 
 -- Item removal
@@ -257,12 +286,23 @@ instArrReplacement name tag ctx =
 -- and returns the names of the tuple subtype existentials.
 -- Pass in the existential name ("a") and a tag for the created types.
 instTupReplacement :: String -> Int -> a -> Context a -> ([String], Context a)
-instTupReplacement name n tag ctx =
-  let  ~(eNames, ctx') = getFreshNamesFrom name n ctx in
-  let target = EDecl name in
-  let replacements = reverse (EDecl <$> eNames) ++ [ESol name (TyTup [EVar eName tag | eName <- eNames] tag)] in 
-  let finalCtx = replaceItemWithItems target replacements ctx' in
-  (eNames, finalCtx)
+instTupReplacement name n tag = abstractReplacement (`TyTup` tag) name n tag
+
+-- | Used in InstLDelta and InstRDelta instantiation rules
+-- CTX[a?] -> CTX[an, ..., a1, a=C a1 ... an]
+-- Performs that replacement by generating fresh existentials
+-- and returns the names of the application subtype existentials.
+-- Pass in the constructor name, the existential name ("a"), and a tag for the created types.
+instAppReplacement :: String -> String -> Int -> a -> Context a -> ([String], Context a)
+instAppReplacement con name n tag = abstractReplacement (foldl (\ f x -> TyApp f x tag) (TyCon con tag)) name n tag
+
+abstractReplacement :: ([Type a] -> Type a) -> String -> Int -> a -> Context a -> ([String], Context a)
+abstractReplacement makeType name n tag ctx =
+    let ~(eNames, ctx') = getFreshNamesFrom name n ctx in
+    let target = EDecl name in
+    let replacements = reverse (EDecl <$> eNames) ++ [ESol name (makeType [EVar eName tag | eName <- eNames])] in
+    let finalCtx = replaceItemWithItems target replacements ctx' in
+    (eNames, finalCtx)
 
 
 -- context as a type substitution
@@ -282,6 +322,8 @@ contextAsSubstitution ctx t =
     TyScheme name' body tag -> TyScheme name' (recurse body) tag
     TyArr arg ret tag -> TyArr (recurse arg) (recurse ret) tag
     TyTup tys tag -> TyTup (recurse <$> tys) tag
+    TyCon{} -> t
+    TyApp f x tag -> TyApp (recurse f) (recurse x) tag
 
 
 -- well-formedness
@@ -289,10 +331,13 @@ contextAsSubstitution ctx t =
 
 data ContextWFError a = UnboundUVar String a
                       | UnboundEVar String a
+                      | UnboundTCon String a
                       | DupVar (ContextItem a)
                       | DupUVar (ContextItem a)
                       | DupEVar (ContextItem a)
                       | DupEMarker (ContextItem a)
+                      | DupCon (ContextItem a)
+                      | DupTCon (ContextItem a)
                       deriving(Eq, Show) -- TODO manual Show instance
 
 -- TODO return list of errors instead
@@ -315,6 +360,10 @@ checkTypeWellFormedness ctx t =
     TyScheme name body _ -> checkTypeWellFormedness (addUDecl name ctx) body
     TyArr arg ret _ -> sequence_ (checkTypeWellFormedness ctx <$> [arg, ret])
     TyTup tys _ -> sequence_ (checkTypeWellFormedness ctx <$> tys)
+    TyCon name tag
+        | DName name `elem` domain ctx -> Right ()
+        | otherwise -> Left (UnboundTCon name tag)
+    TyApp f x _ -> sequence_ (checkTypeWellFormedness ctx <$> [f, x])
 
 -- | check the well-formedness of a context
 checkContextWellFormedness :: Context a -> Either (ContextWFError a) ()
@@ -335,4 +384,9 @@ checkContextWellFormedness (Context (item:items) v) =
       EMarker{} -> do
         when (item `elem` items) (Left $ DupEMarker item)
         checkDup DupEVar item
+      ConAnnot _ t -> do
+        checkDup DupCon item
+        checkTypeWellFormedness ctx t
+      TAnnot{} -> do
+        checkDup DupTCon item
     checkContextWellFormedness ctx

@@ -173,7 +173,7 @@ ctxTests = TestLabel "context tests" $ TestList [
   ]
 
 subtypeCtx =
-  initialContext
+  emptyContext
   |> addUDecl "a"
   |> addEMarker "b"
   |> addEDecl "b"
@@ -186,6 +186,13 @@ instSubtypeCtx =
   |> addEMarker "y"
   |> addEDecl "y"
   |> addEDecl "g"
+
+dataCtx =
+    initialContext
+    |> addUDecl "a"
+    |> addEMarker "b"
+    |> addEDecl "b"
+    |> addUDecl "q"
 
 -- | for simple subtype tests that don't affect the context and use subtypeCtx
 tSubtypePass :: (Eq a, Show a) => Type a -> Type a -> Test
@@ -227,6 +234,9 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypePass (ttup [tint, tint, tint \-> tint]) (ttup [tint, tint, tint \-> tint])
   , tSubtypeMismatch (ttup [tint, tint]) (ttup [tint, tint, tint])
   , tSubtypeError (ttup [tint, tint]) (ttup [tint, tint \-> tint]) (Mismatch (tint \-> tint) tint)
+  , tSubtypePassInst dataCtx (tcon "Bool") (tcon "Bool") dataCtx
+  , tSubtypePassInst dataCtx (tcon "List" \\$ tint) (tcon "List" \\$ tint) dataCtx
+  , tSubtypeErrorInst dataCtx (tcon "List" \\$ tint) (tcon "List" \\$ one) (Mismatch one tint)
   , tSubtypeError (evar "z") one (ContextItemNotFound (EDecl "z"))
   , tSubtypeMismatch one tint
   , tSubtypeMismatch tint one
@@ -311,9 +321,15 @@ subtypeTests = TestLabel "subtype tests" $ TestList
   , tSubtypeErrorInst instSubtypeCtx (one \-> one) ("a" \/. uvar "a" \-> uvar "a") (Mismatch one (uvar "a"))
   , tSubtypeErrorInst instSubtypeCtx (("a" \/. uvar "a" \-> uvar "a") \-> (one \-> one)) ((one \-> one) \-> ("a" \/. uvar "a" \-> uvar "a")) (Mismatch one (uvar "a"))
   , tSubtypeError (evar "b" \-> evar "b") (tint \-> (tint \-> tint)) (Mismatch (tint \-> tint) tint)
+  , tSubtypePassInst dataCtx ("a" \/. uvar "a") (ttup [tint, ttup [tint, one]]) dataCtx
   , tSubtypeError (ttup [evar "b", evar "b"]) (ttup [tint, tint \-> tint]) (Mismatch (tint \-> tint) tint)
   , tSubtypePassInst subtypeCtx (ttup [evar "b", evar "b"]) (ttup [tint, tint]) (subtypeCtx |> recordESol "b" tint)
   , tSubtypePassInst subtypeCtx ("g" \/. ttup [uvar "g", uvar "g"]) (ttup [tint, tint]) subtypeCtx
+  , tSubtypePassInst dataCtx ("a" \/. uvar "a") (tcon "List" \\$ tint) dataCtx
+  , tSubtypePassInst dataCtx ("a" \/. tcon "List" \\$ uvar "a") (tcon "List" \\$ tint) dataCtx
+  , tSubtypePassInst dataCtx (tcon "List" \\$ ("a" \/. uvar "a" \-> uvar "a")) (tcon "List" \\$ (tint \-> tint)) dataCtx
+  , tSubtypePassInst dataCtx (tcon "List" \\$ ("a" \/. uvar "a" \-> uvar "a")) (tcon "List" \\$ (tcon "Bool" \-> tcon "Bool")) dataCtx
+  , tSubtypeErrorInst dataCtx (tcon "Bool") (tcon "List" \\$ tint) (Mismatch (tcon "List" \\$ tint) (tcon "Bool"))
   , tpass
   ]
 

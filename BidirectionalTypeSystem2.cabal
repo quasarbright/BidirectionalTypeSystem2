@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ac3917c3a9bfc920ef706055364387645f5208cf0b728b9fbc8df8e859020be0
+-- hash: a98f5a5f9d80deb616a72dfb639ad997cbb94a415c4234ab4ae4d985445636eb
 
 name:           BidirectionalTypeSystem2
 version:        0.1.0.0
@@ -29,6 +29,7 @@ library
   exposed-modules:
       Check
       Common
+      Decls
       Environment
       Exprs
       Lib

@@ -56,8 +56,15 @@ type TCMonad a = (Either (TypeError a, TCState a))
 type TypeChecker a b = StateT (TCState a) (TCMonad a) b
 
 -- | Initial context for type checking. Contains builtins and their types.
-initialContext :: Context a
-initialContext = emptyContext
+initialContext :: Context ()
+initialContext =
+    emptyContext
+    |> addTAnnot "Bool" star
+    |> addConAnnot "True" (tcon "Bool")
+    |> addConAnnot "False" (tcon "Bool")
+    |> addTAnnot "List" (kindWithArity 1)
+    |> addConAnnot "Empty" ("a" \/. tcon "List" \\$ uvar "a")
+    |> addConAnnot "Cons" ("a" \/. uvar "a" \-> tcon "List" \-> tcon "List" \\$ uvar "a")
 
 
 -- utilities
@@ -189,10 +196,10 @@ EVar name _ \<: EVar name' _
   -- don't mismatch if names are different. InstantiateL will handle that
   | name == name' = assertCtxHasEDecl name
 -- Var
-UVar name tag \<: UVar name' tag' = do
-  assertTypeWF (UVar name tag)
-  assertTypeWF (UVar name' tag')
-  unless (name == name') (mismatch (UVar name' tag') (UVar name tag))
+a@(UVar name _) \<: b@(UVar name' _) = do
+  assertTypeWF a
+  assertTypeWF b
+  unless (name == name') (mismatch b a)
 -- Int
 TInt{} \<: TInt{} = return ()
 -- ->
@@ -205,6 +212,27 @@ TyArr arg ret _ \<: TyArr arg' ret' _ = do
 a@(TyTup tys _) \<: b@(TyTup tys' _) = do
   unless (length tys == length tys') (mismatch b a)
   zipWithM_ (\t1 t2 -> join $ liftM2 (<:) (simplify t1) (simplify t2)) tys tys'
+-- delta
+a@(TyCon name _) \<: b@(TyCon name' _) = do
+    assertTypeWF a
+    assertTypeWF b
+    unless (name == name') (mismatch b a)
+-- FullApp
+a@TyApp{} \<: b@TyApp{} = do
+    -- TODO kind check
+    -- kindCheck a *
+    -- kindCheck b *
+    -- TODO make this just do TyApp f x <: TyApp f' x' = do f <: f'; x <: x' when you have kind inference
+--    f <: f'
+--    xSimplified <- simplify x
+--    x'Simplified <- simplify x'
+--    xSimplified <: x'Simplified
+    let (f, tyArgs) = spine a
+    let (f', tyArgs') = spine b
+    case (f, f') of
+        (TyCon name _, TyCon name' _) -> unless (name == name') (mismatch f' f)
+        _ -> error "bad type application not caught in well-formedness" -- TODO actual error here?
+    TyTup tyArgs (getTag a) <: TyTup tyArgs' (getTag b)
 -- forall L
 TyScheme name body tag \<: t = do
   (eName, startCtx') <- getFreshNameFrom name <$> getContext
@@ -236,6 +264,8 @@ a@UVar{} \<: b = mismatch b a
 a@TInt{} \<: b = mismatch b a
 a@TyArr{} \<: b = mismatch b a
 a@TyTup{} \<: b = mismatch b a
+a@TyCon{} \<: b = mismatch b a
+a@TyApp{} \<: b = mismatch b a
 
 -- | run the subtype assertion with the given initial context, ignoring the final context
 evalSubtype :: Type a -> Type a -> Context a -> TCMonad a ()
@@ -250,6 +280,7 @@ instantiateL :: String -> Type a -> TypeChecker a ()
 instantiateL eName t = localReason (LeftInstantiating eName t) (_instantiateL eName t)
 
 -- TODO put a mono type guard on the last case and make a new case which throws an instantiation error
+-- TODO instantiation of deltas and apps. careful with kinds
 -- | Instantiate the specified existential such that a? <: A (subtype).
 -- May modify context
 _instantiateL :: String -> Type a -> TypeChecker a ()
@@ -268,6 +299,8 @@ _instantiateL name (TyArr argType retType tag) = do
   instantiateL retName simplifiedRetType
 -- InstLTup
 _instantiateL name (TyTup tys tag) = instantiateTup name tys tag True
+-- InstLDelta
+_instantiateL name a@TyApp{} = instantiateApp name a True
 -- InstLAllR
 _instantiateL name (TyScheme uname body _) = do
   assertCtxHasEDecl name
@@ -304,6 +337,7 @@ _instantiateR (TyArr argType retType tag) name = do
   instantiateR simplifiedRetType retName
 -- InstRTup
 _instantiateR (TyTup tys tag) name = instantiateTup name tys tag False
+_instantiateR a@TyApp{} name = instantiateApp name a False
 -- InstRAllL
 _instantiateR (TyScheme uName body tag) name = do
   assertCtxHasEDecl name
@@ -331,6 +365,23 @@ instantiateTup name tys tag isLeft = do
   where
       go eName ty = do
           let eType = EVar eName tag
+          ty' <- simplify ty
+          if isLeft then eType <: ty' else ty' <: eType
+
+-- | helper for instantiating existentials to type applications. bool argument is true for left instantiation, false for right.
+instantiateApp :: String -> Type a -> Bool -> TypeChecker a ()
+instantiateApp name a isLeft = do
+    assertCtxHasEDecl name
+    let (f, tyArgs) = spine a
+    let con = case f of
+            TyCon con' _ -> con'
+            _ -> error "bad type app in instantiation"
+    (eNames, articulatedCtx) <- instAppReplacement con name (length tyArgs) (getTag a) <$> getContext
+    putContext articulatedCtx
+    zipWithM_ go eNames tyArgs
+    where
+      go eName ty = do
+          let eType = EVar eName (getTag a)
           ty' <- simplify ty
           if isLeft then eType <: ty' else ty' <: eType
 

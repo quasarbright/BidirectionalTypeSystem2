@@ -26,6 +26,9 @@ class Tagged f => ExprLike f where
 data Name = VName String -- expr var name
           | UName String -- type universal name
           | EName String -- type existential name
+          | DName String -- type Constructor name
+          | CName String -- Value Constructor name
+
           deriving(Eq, Ord)
 
 instance Show Name where
@@ -33,3 +36,5 @@ instance Show Name where
     VName name -> name
     UName name -> name
     EName name -> name ++ "?"
+    DName name -> name
+    CName name -> name
