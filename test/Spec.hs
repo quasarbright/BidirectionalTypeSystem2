@@ -450,12 +450,23 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , let e = ("pair" \. ecase (var "pair") [(ptup [pvar "x", pvar "y"], tup [var "y", var "x"])])
     in tCheck emptyContext e ("a" \/. "b" \/. ttup [uvar "a", uvar "b"] \-> ttup [uvar "b", uvar "a"]) emptyContext
   , tSynthErr emptyContext (ecase (int 1) [(ptup [], unit)]) (Mismatch tint one)
-  , tSynthErr emptyContext (ecase (int 1) [(ptup [pvar "x", pvar "y"], var "x")]) (Mismatch tint (ttup [evar "a$3", evar "a$4"]))
+  , tSynthErr emptyContext (ecase (int 1) [(ptup [pvar "x", pvar "y"], var "x")]) (Mismatch tint (ttup [evar "match$3", evar "match$4"]))
   , tSynthErr emptyContext (ecase (tup [unit, unit]) [(pint 1, "x" \. var "x")]) (Mismatch (ttup [one, one]) tint)
     -- pattern match shadow with different types (wf error) TODO make it an or pattern when you make or patterns
   , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "x"], unit)]) (Mismatch one tint)
   -- variables across different matches are independent
   , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"], tup [var "y", var "x"]), (ptup [pvar "y", pvar "x"], tup [var "x", var "y"])]) (ttup [one, tint])
+  -- when there are subtypes in different cases, order doesn't matter and it picks the supertype
+  , tSynthSimple emptyContext (ecase unit [(pwild, "x" \. var "x" \:: one \-> one), (pwild, "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a")]) (one \-> one)
+  , tSynthSimple emptyContext (ecase unit [(pwild, "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"), (pwild, "x" \. var "x" \:: one \-> one)]) (one \-> one)
+  -- TODO investigate unbound. try to get it passing with \/a.a after
+--  , tSynthSimple emptyContext (ecase unit [(pwild, "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"), (pwild, "x" \. var "x" \:: "a"\/. ("b" \/. uvar "b") \-> uvar "a")]) ("a" \/. uvar "a" \-> uvar "a")
+  -- or pattern
+  , tSynthSimple emptyContext (ecase (int 1) [(pint 1 \| pint 2 \| pint 3, unit)]) one
+  , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pint 1 \| pint 2, pvar "y"], var "y")]) one
+  , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pint 1, pvar "y"] \| ptup [pint 2, pvar "y"], var "y")]) one
+  , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"] \| pvar "x", unit)]) (OccursError (EName "match$3") (ttup [evar "match$3", evar "match$4"]))
+  , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"] \| ptup [pvar "y", pvar "x"], unit)]) (Mismatch one tint)
   ]
 
 tests :: Test

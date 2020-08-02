@@ -408,6 +408,7 @@ _typeSynth (Annot e t _) = do
 _typeSynth (EInt _ tag) = return $ TInt tag
 -- ->I =>
 _typeSynth (Lambda name body tag) = do
+  -- TODO make these have better names than "a" and "b" for debugging
   (argName, ctx') <- getFreshNameFrom "a" <$> getContext
   let (retName, ctx'') = getFreshNameFrom "b" ctx'
   putContext ctx''
@@ -526,9 +527,9 @@ typeCheckMatch pat rhs tPat tRhs = localReason (MatchChecking pat rhs tPat tRhs)
 _typeCheckMatch :: Pattern a -> Expr a -> Type a -> Type a -> TypeChecker a ()
 _typeCheckMatch pat rhs tPat tRhs = do
     let freeVars = show <$> toList (getFreeVars pat)
-    (markerName, ctx') <- getFreshNameFrom "mark" <$> getContext
+    (markerName, ctx') <- getFreshNameFrom "match" <$> getContext
     putContext ctx'
-    (eNames, ctx'') <- getFreshNamesFrom "a" (length freeVars) <$> getContext
+    (eNames, ctx'') <- getFreshNamesFrom "match" (length freeVars) <$> getContext
     putContext ctx''
     let eTypes = [EVar eName (getTag pat) | eName <- eNames]
     modifyContextTC $ addEMarker markerName
@@ -575,3 +576,11 @@ _typeSynthPattern (PAnnot p t _) = do
     typeCheckPattern p t
     return t
 _typeSynthPattern (PWild tag) = return (TyScheme "a" (UVar "a" tag) tag)
+_typeSynthPattern (POr left right tag) = do
+    (eName, ctx') <- getFreshNameFrom "or" <$> getContext
+    putContext ctx'
+    modifyContextTC $ addEDecl eName
+    let eType = EVar eName tag
+    typeCheckPattern left eType
+    typeCheckPattern right eType
+    return eType

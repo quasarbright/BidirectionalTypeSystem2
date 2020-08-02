@@ -5,6 +5,8 @@ import Common
 import Types
 import Data.List
 
+-- TODO data decls
+-- TODO fix, let f x, let rec s, let (x, y) = e in b
 data Expr a = Var String a
             -- 12
             | EInt Int a
@@ -133,6 +135,7 @@ data Pattern a = PVar String a
                | PTup [Pattern a] a
                | PAnnot (Pattern a) (Type a) a
                | PWild a
+               | POr (Pattern a) (Pattern a) a
 
 instance Show (Pattern a) where
     showsPrec p pat =
@@ -143,6 +146,7 @@ instance Show (Pattern a) where
             PTup ps _ -> showParen True $ showString . intercalate ", " $ show <$> ps
             PAnnot pat' t _ -> showParen (p > p') $ showsPrec p' pat' . showString " :: " . showsPrec (p'+1) t
             PWild{} -> showString "_"
+            POr left right _ -> showParen (p > p') $ showsPrec p' left . showString " | " . showsPrec (p'+1) right
 
 instance Eq (Pattern a) where
     PVar name _ == PVar name' _ = name == name'
@@ -156,6 +160,8 @@ instance Eq (Pattern a) where
     PWild{} == PWild{} = True
     -- haha, wildcard != wildcard
     PWild{} == _ = False
+    POr left right _ == POr left' right' _ = (left, right) == (left', right')
+    POr{} == _ = False
 
 instance Functor Pattern where
     fmap f (PVar name a) = PVar name (f a)
@@ -163,6 +169,7 @@ instance Functor Pattern where
     fmap f (PTup ps a) = PTup (fmap f <$> ps) (f a)
     fmap f (PAnnot p t a) = PAnnot (f <$> p) (f <$> t) (f a)
     fmap f (PWild a) = PWild (f a)
+    fmap f (POr left right a) = POr (f <$> left) (f <$> right) (f a)
 
 instance Tagged Pattern where
     getTag (PVar _ a) = a
@@ -170,12 +177,14 @@ instance Tagged Pattern where
     getTag (PTup _ a) = a
     getTag (PAnnot _ _ a) = a
     getTag (PWild a) = a
+    getTag (POr _ _ a) = a
 
     setTag a (PVar name _) = PVar name a
     setTag a (PInt n _) = PInt n a
     setTag a (PTup ps _) = PTup ps a
     setTag a (PAnnot p t _) = PAnnot p t a
     setTag a PWild{} = PWild a
+    setTag a (POr left right _) = POr left right a
 
 instance ExprLike Pattern where
     getFreeVars (PVar name _) = Set.singleton (VName name)
@@ -183,12 +192,14 @@ instance ExprLike Pattern where
     getFreeVars (PTup ps _) = Set.unions (getFreeVars <$> ps)
     getFreeVars (PAnnot p _ _) = getFreeVars p
     getFreeVars PWild{} = Set.empty
+    getFreeVars (POr left right _) = Set.unions (getFreeVars <$> [left, right])
 
     getPrecedence PVar{} = 100
     getPrecedence PInt{} = 100
     getPrecedence PTup{} = 100
     getPrecedence PAnnot{} = 1
     getPrecedence PWild{} = 100
+    getPrecedence POr{} = 2
 
 
 -- combinators for easily building expressions
@@ -261,5 +272,11 @@ ptup ps = PTup ps ()
 pannot :: Pattern () -> Type () -> Pattern ()
 pannot p t = PAnnot p t ()
 
+-- | wildcard pattern combinator
 pwild :: Pattern ()
 pwild = PWild ()
+
+-- | or pattern combinator
+infixl 2 \|
+(\|) :: Pattern () -> Pattern () -> Pattern ()
+left \| right = POr left right ()
