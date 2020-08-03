@@ -483,6 +483,20 @@ _typeSynth (LambdaAnnot name t body tag) = do
   let argType = t
   let retType = EVar retName tag
   typeSynthLambdaHelp name retName argType retType body tag
+_typeSynth (Fix name body tag) = do
+    (eName, ctx') <- getFreshNameFrom "fix" <$> getContext
+    putContext ctx'
+    let eType = EVar eName tag
+    modifyContextTC $ addEDecl eName
+    modifyContextTC $ addVarAnnot name eType
+    typeCheck body eType
+    modifyContextTC $ removeItemsAfterVarAnnot name eType
+    return eType
+_typeSynth (FixAnnot name t body _) = do
+     modifyContextTC $ addVarAnnot name t
+     typeCheck body t
+     modifyContextTC $ removeItemsAfterVarAnnot name t
+     return t
 -- let =>
 _typeSynth (Let x e body _) = do
   tX <- typeSynth e

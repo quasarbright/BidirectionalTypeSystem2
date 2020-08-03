@@ -496,6 +496,21 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
             [ (pcon "Cons" [pvar "x", pcon "Cons"  [pvar "y", pwild]], tup [var "x", var "y"])
             , (pcon "Cons" [pvar "x", pcon "Empty" []],                tup [var "x", var "x"] )])
         ("a" \/. tcon "List" \\$ uvar "a" \-> ttup [uvar "a", uvar "a"]) initialContext
+  -- [1,1,1,...]
+  , tSynthSimple initialContext ("x" `efix` con "Cons" \$ int 1 \$ var "x") (tcon "List" \\$ tint)
+  , tSynthSimple initialContext (efixAnnot "x" (tcon "List" \\$ tint) (con "Cons" \$ int 1 \$ var "x")) (tcon "List" \\$ tint)
+  -- list map
+  , let
+        t = ("a" \/. "b" \/. (uvar "a" \-> uvar "b") \-> (tcon "List" \\$ uvar "a") \-> (tcon "List" \\$ uvar "b"))
+        prog =
+            efixAnnot "map" t $
+            "f" \. "xs" \. ecase (var "xs")
+                [ (pcon "Empty" [],                     con "Empty")
+                , (pcon "Cons"  [pvar "x", pvar "xs'"], con "Cons" \$ (var "f" \$ var "x") \$ (var "map" \$ var "f" \$ var "xs'"))
+                ]
+    in tCheck initialContext prog t initialContext
+  , tSynthErr initialContext ("x" `efix` tup [var "x", var "x"]) (OccursError (EName "fix$6") (ttup [evar "fix$6", evar "fix$6"]))
+  , tSynthErr initialContext (efixAnnot "x" (ttup [one, one]) $ tup [var "x", var "x"]) (Mismatch one (ttup [one, one]))
   ]
 
 tests :: Test

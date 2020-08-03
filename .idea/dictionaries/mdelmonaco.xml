@@ -12,6 +12,8 @@
       <w>data.</w>
       <w>delmonaco</w>
       <w>ecase</w>
+      <w>efix</w>
+      <w>elet</w>
       <w>evar</w>
       <w>existentials</w>
       <w>exprs</w>
@@ -36,6 +38,7 @@
       <w>tag'</w>
       <w>tcon</w>
       <w>tpass</w>
+      <w>ttup</w>
       <w>type'</w>
       <w>unwords</w>
       <w>uvar</w>
