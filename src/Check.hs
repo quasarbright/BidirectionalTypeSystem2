@@ -27,6 +27,7 @@ data Reason a = Checking (Expr a) (Type a)
               | MatchChecking (Pattern a) (Expr a) (Type a) (Type a)
               | PatternChecking (Pattern a) (Type a)
               | PatternSynthesizing (Pattern a)
+              | PatternApplicationSynthesizing (Type a) (Pattern a)
               | Subtyping (Type a) (Type a)
               | LeftInstantiating String (Type a)
               | RightInstantiating (Type a) String
@@ -64,7 +65,7 @@ initialContext =
     |> addConAnnot "False" (tcon "Bool")
     |> addTAnnot "List" (kindWithArity 1)
     |> addConAnnot "Empty" ("a" \/. tcon "List" \\$ uvar "a")
-    |> addConAnnot "Cons" ("a" \/. uvar "a" \-> tcon "List" \-> tcon "List" \\$ uvar "a")
+    |> addConAnnot "Cons" ("a" \/. uvar "a" \-> tcon "List" \\$ uvar "a" \-> tcon "List" \\$ uvar "a")
 
 
 -- utilities
@@ -373,10 +374,10 @@ instantiateApp :: String -> Type a -> Bool -> TypeChecker a ()
 instantiateApp name a isLeft = do
     assertCtxHasEDecl name
     let (f, tyArgs) = spine a
-    let con = case f of
+    let conName = case f of
             TyCon con' _ -> con'
             _ -> error "bad type app in instantiation"
-    (eNames, articulatedCtx) <- instAppReplacement con name (length tyArgs) (getTag a) <$> getContext
+    (eNames, articulatedCtx) <- instAppReplacement conName name (length tyArgs) (getTag a) <$> getContext
     putContext articulatedCtx
     zipWithM_ go eNames tyArgs
     where
@@ -450,6 +451,12 @@ _typeSynth (Var name _) = do
   case lookupVar name ctx of
     Just t -> return t
     _ -> error "unbound variable in type synthesis"
+-- Con
+_typeSynth (Con name _) = do
+  ctx <- getContext
+  case lookupCon name ctx of
+    Just t -> return t
+    _ -> error "unbound constructor in type synthesis"
 -- Anno
 _typeSynth (Annot e t _) = do
   assertTypeWF t
@@ -635,3 +642,33 @@ _typeSynthPattern (POr left right tag) = do
     typeCheckPattern left eType
     typeCheckPattern right eType
     return eType
+_typeSynthPattern (PCon name args tag) = do
+    conType <- typeSynth (Con name tag)
+    foldM typeSynthPatternApp conType args
+
+-- | wrapper for _typeSynthPatternApp that handles logging
+typeSynthPatternApp :: Type a -> Pattern a -> TypeChecker a (Type a)
+typeSynthPatternApp t x = localReason (PatternApplicationSynthesizing t x) (_typeSynthPatternApp t x)
+
+-- | Given a function type and argument pattern being applied to a function of that type,
+-- synthesize the type of the application.
+_typeSynthPatternApp :: Type a -> Pattern a -> TypeChecker a (Type a)
+_typeSynthPatternApp (TyScheme uName body tag) x = do
+    (eName, ctxAfterName) <- getFreshNameFrom uName <$> getContext
+    putContext ctxAfterName
+    let eType = EVar eName tag
+    modifyContextTC $ addEDecl eName
+    let eBody = substituteTypeVariable (UName uName) eType body
+    typeSynthPatternApp eBody x
+_typeSynthPatternApp (TyArr argType retType _) x = do
+    typeCheckPattern x argType
+    return retType
+_typeSynthPatternApp (EVar eName tag) x = do
+    assertCtxHasItem (EDecl eName)
+    (argName, retName, ctx') <- instArrReplacement eName tag <$> getContext
+    putContext ctx'
+    let argType = EVar argName tag
+    let retType = EVar retName tag
+    typeCheckPattern x argType
+    return retType
+_typeSynthPatternApp t _ = throw $ AppliedNonFunction t

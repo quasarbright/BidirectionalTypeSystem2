@@ -483,6 +483,19 @@ synthCheckTests = TestLabel "type synthesis and checking" $ TestList
   , tSynthSimple emptyContext (ecase (tup [int 1, unit]) [(ptup [pint 1, pvar "y"] \| ptup [pint 2, pvar "y"], var "y")]) one
   , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"] \| pvar "x", unit)]) (OccursError (EName "match$3") (ttup [evar "match$3", evar "match$4"]))
   , tSynthErr emptyContext (ecase (tup [int 1, unit]) [(ptup [pvar "x", pvar "y"] \| ptup [pvar "y", pvar "x"], unit)]) (Mismatch one tint)
+  , tSynthSimple initialContext (con "True") (tcon "Bool")
+  , tSynthSimple initialContext (con "False") (tcon "Bool")
+  -- if with real booleans
+  , tCheck initialContext ("cond" \. "thn" \. "els" \. ecase (var "cond") [(pcon "True" [], var "thn"), (pwild, var "els")]) ("a" \/. tcon "Bool" \-> uvar "a" \-> uvar "a" \-> uvar "a") initialContext
+  , tSynthSimple initialContext (con "Cons" \$ int 1 \$ con "Empty") (tcon "List" \\$ tint)
+  -- list head
+  , tCheck initialContext ("xs" \. ecase (var "xs") [(pcon "Cons" [pvar "x", pwild], var "x")]) ("a" \/. tcon "List" \\$ uvar "a" \-> uvar "a") initialContext
+  -- either tuple first and second or first and first
+  , tCheck initialContext
+        ("xs" \. ecase (var "xs")
+            [ (pcon "Cons" [pvar "x", pcon "Cons"  [pvar "y", pwild]], tup [var "x", var "y"])
+            , (pcon "Cons" [pvar "x", pcon "Empty" []],                tup [var "x", var "x"] )])
+        ("a" \/. tcon "List" \\$ uvar "a" \-> ttup [uvar "a", uvar "a"]) initialContext
   ]
 
 tests :: Test

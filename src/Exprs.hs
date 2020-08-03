@@ -26,6 +26,8 @@ data Expr a = Var String a
             | Annot (Expr a) (Type a) a
             -- case e of ms
             | Case (Expr a) [(Pattern a, Expr a)] a
+            -- Cons, Empty, True, False, Node, etc.
+            | Con String a
 
 instance Show (Expr a) where
   showsPrec p e =
@@ -44,6 +46,7 @@ instance Show (Expr a) where
         showParen (p > p') $ showString "case " . shows e' . showString " of" . showString (showMatches ms)
             where
                 showMatches = concatMap (\ ~(pat, rhs) -> " | "++show pat++" -> "++show rhs)
+      Con name _ -> shows (CName name)
 
 instance Eq (Expr a) where
   Var name _ == Var name' _ = name == name'
@@ -66,6 +69,8 @@ instance Eq (Expr a) where
   Annot{} == _ = False
   Case e ms _ == Case e' ms' _ = (e,ms) == (e', ms')
   Case{} == _ = False
+  Con name _ == Con name' _ = name == name'
+  Con{} == _ = False
 
 instance Functor Expr where
   fmap f (Var name a) = Var name (f a)
@@ -79,6 +84,7 @@ instance Functor Expr where
   fmap f (Annot e t a) = Annot (fmap f e) (fmap f t) (f a)
   fmap f (Case e ms a) = Case (f <$> e) ms' (f a)
     where ms' = [(f <$> p, f <$> rhs) | (p, rhs) <- ms]
+  fmap f (Con name a) = Con name (f a)
 
 instance Tagged Expr where
   getTag (EInt _ a) = a
@@ -91,6 +97,7 @@ instance Tagged Expr where
   getTag (Tup _ a) = a
   getTag (Annot _ _ a) = a
   getTag (Case _ _ a) = a
+  getTag (Con _ a) = a
 
   setTag a (EInt n _) = EInt n a
   setTag a (Var name _) = Var name a
@@ -102,6 +109,7 @@ instance Tagged Expr where
   setTag a (Tup es _) = Tup es a
   setTag a (Annot e t _) = Annot e t a
   setTag a (Case e ms _) = Case e ms a
+  setTag a (Con name _) = Con name a
 
 instance ExprLike Expr where
   getFreeVars (Var name _) = Set.singleton (VName name)
@@ -115,6 +123,7 @@ instance ExprLike Expr where
   getFreeVars (Annot e _ _) = getFreeVars e
   getFreeVars (Case e ms _) = Set.union (getFreeVars e) msVars
     where msVars = Set.unions [Set.difference (getFreeVars p) (getFreeVars rhs) | (p, rhs) <- ms]
+  getFreeVars (Con name _) = Set.singleton (CName name)
 
   getPrecedence Var{} = 100
   getPrecedence EInt{} = 100
@@ -126,6 +135,7 @@ instance ExprLike Expr where
   getPrecedence Tup{} = 100
   getPrecedence Annot{} = 1
   getPrecedence Case{} = 3
+  getPrecedence Con{} = 100
 
 -- patterns
 
@@ -136,6 +146,7 @@ data Pattern a = PVar String a
                | PAnnot (Pattern a) (Type a) a
                | PWild a
                | POr (Pattern a) (Pattern a) a
+               | PCon String [Pattern a] a
 
 instance Show (Pattern a) where
     showsPrec p pat =
@@ -147,6 +158,9 @@ instance Show (Pattern a) where
             PAnnot pat' t _ -> showParen (p > p') $ showsPrec p' pat' . showString " :: " . showsPrec (p'+1) t
             PWild{} -> showString "_"
             POr left right _ -> showParen (p > p') $ showsPrec p' left . showString " | " . showsPrec (p'+1) right
+            PCon name [] _ -> shows (CName name)
+            PCon name args _ -> showParen (p > p') $ shows (CName name) . argsS
+                where argsS = showString $ unwords [showsPrec (p'+1) arg "" | arg <-  args]
 
 instance Eq (Pattern a) where
     PVar name _ == PVar name' _ = name == name'
@@ -162,6 +176,8 @@ instance Eq (Pattern a) where
     PWild{} == _ = False
     POr left right _ == POr left' right' _ = (left, right) == (left', right')
     POr{} == _ = False
+    PCon name args _ == PCon name' args' _ = (name, args) == (name', args')
+    PCon{} == _ = False
 
 instance Functor Pattern where
     fmap f (PVar name a) = PVar name (f a)
@@ -170,6 +186,7 @@ instance Functor Pattern where
     fmap f (PAnnot p t a) = PAnnot (f <$> p) (f <$> t) (f a)
     fmap f (PWild a) = PWild (f a)
     fmap f (POr left right a) = POr (f <$> left) (f <$> right) (f a)
+    fmap f (PCon name args a) = PCon name (fmap f <$> args) (f a)
 
 instance Tagged Pattern where
     getTag (PVar _ a) = a
@@ -178,6 +195,7 @@ instance Tagged Pattern where
     getTag (PAnnot _ _ a) = a
     getTag (PWild a) = a
     getTag (POr _ _ a) = a
+    getTag (PCon _ _ a) = a
 
     setTag a (PVar name _) = PVar name a
     setTag a (PInt n _) = PInt n a
@@ -185,6 +203,7 @@ instance Tagged Pattern where
     setTag a (PAnnot p t _) = PAnnot p t a
     setTag a PWild{} = PWild a
     setTag a (POr left right _) = POr left right a
+    setTag a (PCon name args _) = PCon name args a
 
 instance ExprLike Pattern where
     getFreeVars (PVar name _) = Set.singleton (VName name)
@@ -193,6 +212,8 @@ instance ExprLike Pattern where
     getFreeVars (PAnnot p _ _) = getFreeVars p
     getFreeVars PWild{} = Set.empty
     getFreeVars (POr left right _) = Set.unions (getFreeVars <$> [left, right])
+    -- don't include con name because the type checker will annotate it with an existential
+    getFreeVars (PCon _ args _) = Set.unions (getFreeVars <$> args)
 
     getPrecedence PVar{} = 100
     getPrecedence PInt{} = 100
@@ -200,6 +221,7 @@ instance ExprLike Pattern where
     getPrecedence PAnnot{} = 1
     getPrecedence PWild{} = 100
     getPrecedence POr{} = 2
+    getPrecedence PCon{} = 4
 
 
 -- combinators for easily building expressions
@@ -251,6 +273,10 @@ e \:: t = Annot e t ()
 ecase :: Expr () -> [(Pattern (), Expr ())] -> Expr ()
 ecase e ms = Case e ms ()
 
+-- | Constructor expression combinator
+con :: String -> Expr ()
+con name = Con name ()
+
 -- example: identity function
 _ = "x" \. var "x" \:: "a" \/. uvar "a" \-> uvar "a"
 
@@ -280,3 +306,7 @@ pwild = PWild ()
 infixl 2 \|
 (\|) :: Pattern () -> Pattern () -> Pattern ()
 left \| right = POr left right ()
+
+-- | constructor pattern combinator
+pcon :: String -> [Pattern ()] -> Pattern ()
+pcon name args = PCon name args ()
